@@ -1,0 +1,288 @@
+#!/usr/bin/env python3
+"""modules/calling — get ahold of a nominated contact. Port 8060.
+
+  POST /alert   {"contact":"Dhruv","message":"...","to":"+1555..."} -> per-channel results
+  GET  /health                                                     -> which channels are armed
+  GET  /                                                           -> browser test page
+
+WHY FAN-OUT AND NOT ONE CHANNEL
+-------------------------------
+The requirement is not "place a call", it is "somebody has to get ahold". Those are
+different problems. A single channel has a single failure mode: the phone is on silent,
+the bot is muted, the trial credit ran out, the venue wifi is captive-portalled. So we
+fire every armed channel at once and report each one's outcome separately. Partial
+success is the normal case and the response says exactly which parts worked.
+
+WHAT ACTUALLY RINGS A PHONE
+---------------------------
+Only telephony. Telegram and Discord bots cannot initiate a call to a person — Telegram's
+calls are peer-to-peer between user accounts with no API, and Discord bots can only join
+a voice channel the person is already in. WhatsApp's Business Calling API exists but
+needs Meta business verification, which is measured in days.
+
+Two channels here actually ring. `twilio` rings the cellular number (trial credit, and a
+trial account may only dial numbers it has verified — a teammate qualifies). `callmebot`
+rings the contact's Telegram with a spoken message and needs no account at all, at the
+cost of a 256-character limit and a Telegram-on-iOS bug that mutes call audio. The rest
+are loud notifications, which is a real and useful thing to be, just not the same thing.
+
+CONFIGURATION — all optional, arm what you have
+-----------------------------------------------
+  CALLMEBOT_USER                         @username or +phone; RINGS Telegram, free
+  TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID   from @BotFather, ~2 minutes, free
+  NTFY_TOPIC                             no account at all, https://ntfy.sh
+  DISCORD_WEBHOOK_URL                    channel settings -> integrations
+  TWILIO_SID, TWILIO_TOKEN, TWILIO_FROM  trial credit; trial can only dial VERIFIED numbers
+  CALLING_CONTACT_NUMBER                 default destination when the caller sends no "to"
+
+SAFETY
+------
+Emergency numbers are refused at the door, in every channel, regardless of what the
+caller sends. modules/offpath-911's rule ("no real 911 calls, ever, in dev or demo")
+applies here and is enforced in code rather than by convention — see BLOCKED_NUMBERS.
+This service does not decide to escalate; it is told to, by a flow that already took two
+explicit confirmations.
+"""
+import base64
+import json
+import os
+import re
+import sys
+import urllib.error
+import urllib.parse
+import urllib.request
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+PORT = int(os.environ.get("CALLING_PORT", "8060"))
+TIMEOUT = 10
+
+# Refused in every channel. Digits only, after stripping punctuation. This list is
+# deliberately broad: a false refusal costs a demo, a false dial costs a real dispatch.
+BLOCKED_NUMBERS = {
+    "911", "1911", "999", "112", "000", "110", "119", "118", "115",
+    "988",            # US suicide & crisis lifeline
+    "18002738255",    # ditto, long form
+}
+
+
+def blocked(number: str) -> bool:
+    d = re.sub(r"\D", "", number or "")
+    if not d:
+        return False
+    # Match the bare emergency number, and the same with a leading country code.
+    return d in BLOCKED_NUMBERS or any(
+        d.endswith(b) and len(d) - len(b) <= 2 for b in BLOCKED_NUMBERS
+    )
+
+
+def post(url, data=None, headers=None, method="POST"):
+    """One HTTP call, returning (ok, detail). Never raises — a dead channel must not
+    take down the other channels."""
+    req = urllib.request.Request(url, data=data, method=method,
+                                 headers=headers or {})
+    try:
+        with urllib.request.urlopen(req, timeout=TIMEOUT) as r:
+            return True, f"{r.status}"
+    except urllib.error.HTTPError as e:
+        body = e.read()[:200].decode("utf-8", "replace")
+        return False, f"HTTP {e.code}: {body}"
+    except Exception as e:
+        return False, f"{type(e).__name__}: {e}"
+
+
+# ---------------------------------------------------------------- channels
+
+def send_telegram(msg, **_):
+    token = os.environ.get("TELEGRAM_BOT_TOKEN")
+    chat = os.environ.get("TELEGRAM_CHAT_ID")
+    if not (token and chat):
+        return None
+    body = urllib.parse.urlencode({
+        "chat_id": chat, "text": msg, "disable_web_page_preview": "false",
+    }).encode()
+    return post(f"https://api.telegram.org/bot{token}/sendMessage", body,
+                {"Content-Type": "application/x-www-form-urlencoded"})
+
+
+def send_ntfy(msg, contact="", **_):
+    topic = os.environ.get("NTFY_TOPIC")
+    if not topic:
+        return None
+    # Priority 5 is ntfy's "urgent": it rings through a silenced phone on Android and
+    # shows a critical alert on iOS. This is the closest a free, account-less channel
+    # gets to a phone call.
+    return post(f"https://ntfy.sh/{topic}", msg.encode("utf-8"), {
+        "Title": f"Safe Walk alert for {contact}"[:120],
+        "Priority": "5",
+        "Tags": "rotating_light",
+    })
+
+
+def send_discord(msg, **_):
+    hook = os.environ.get("DISCORD_WEBHOOK_URL")
+    if not hook:
+        return None
+    return post(hook, json.dumps({"content": msg[:1900]}).encode(),
+                {"Content-Type": "application/json"})
+
+
+def send_twilio(msg, to="", **_):
+    sid = os.environ.get("TWILIO_SID")
+    tok = os.environ.get("TWILIO_TOKEN")
+    frm = os.environ.get("TWILIO_FROM")
+    if not (sid and tok and frm and to):
+        return None
+    # <Say> reads the report aloud; the loop repeats it once because a person answering
+    # a robocall typically misses the first sentence.
+    safe = (msg.replace("&", "and").replace("<", "").replace(">", ""))
+    twiml = f"<Response><Pause length='1'/><Say voice='Polly.Joanna' loop='2'>{safe}</Say></Response>"
+    body = urllib.parse.urlencode({"To": to, "From": frm, "Twiml": twiml}).encode()
+    auth = base64.b64encode(f"{sid}:{tok}".encode()).decode()
+    return post(f"https://api.twilio.com/2010-04-01/Accounts/{sid}/Calls.json", body, {
+        "Authorization": f"Basic {auth}",
+        "Content-Type": "application/x-www-form-urlencoded",
+    })
+
+
+
+def send_callmebot(msg, **_):
+    """Rings the contact's Telegram and reads the message aloud. Free, no account, no
+    credit card — the recipient authorises once by sending /start to @CallMeBot_txtbot.
+
+    Two caveats that matter and are not obvious:
+      * 256 character hard limit on the spoken text, so we truncate deliberately rather
+        than let the service silently cut mid-sentence.
+      * Telegram's iOS app has a known bug where call audio does not play. The ring still
+        arrives, which is most of the value, and `cc=yes` sends the same text as a chat
+        message so the content survives even when the audio does not. Do not rely on this
+        channel alone for an iPhone contact.
+    """
+    user = os.environ.get("CALLMEBOT_USER")
+    if not user:
+        return None
+    spoken = msg if len(msg) <= 250 else msg[:247] + "..."
+    q = urllib.parse.urlencode({
+        "user": user, "text": spoken, "lang": "en-US-Standard-C",
+        "rpt": "2",     # say it twice; people miss the first sentence of a robocall
+        "cc": "yes",    # carbon-copy as chat text, our insurance against the iOS bug
+    })
+    return post(f"https://api.callmebot.com/start.php?{q}", None, {}, method="GET")
+
+
+CHANNELS = {
+    "twilio": send_twilio,        # rings a real cellular phone
+    "callmebot": send_callmebot,  # rings Telegram, free, no account
+    "telegram": send_telegram,
+    "ntfy": send_ntfy,
+    "discord": send_discord,
+}
+
+
+def armed():
+    """Which channels have enough configuration to be worth trying."""
+    return {
+        "callmebot": bool(os.environ.get("CALLMEBOT_USER")),
+        "twilio": bool(os.environ.get("TWILIO_SID") and os.environ.get("TWILIO_TOKEN")
+                       and os.environ.get("TWILIO_FROM")),
+        "telegram": bool(os.environ.get("TELEGRAM_BOT_TOKEN") and os.environ.get("TELEGRAM_CHAT_ID")),
+        "ntfy": bool(os.environ.get("NTFY_TOPIC")),
+        "discord": bool(os.environ.get("DISCORD_WEBHOOK_URL")),
+    }
+
+
+def fan_out(message, contact, to):
+    results, reached = {}, False
+    for name, fn in CHANNELS.items():
+        out = fn(message, contact=contact, to=to)
+        if out is None:
+            results[name] = {"status": "not configured"}
+            continue
+        ok, detail = out
+        results[name] = {"status": "sent" if ok else "failed", "detail": detail}
+        reached = reached or ok
+    return reached, results
+
+
+# ---------------------------------------------------------------- http
+
+PAGE = """<!doctype html><meta charset=utf-8><title>calling</title>
+<style>body{font:14px ui-monospace,monospace;background:#0d0f14;color:#e6e9ef;padding:24px;max-width:640px}
+input,textarea,button{font:inherit;width:100%;margin:4px 0;padding:8px;background:#161a22;color:#e6e9ef;border:1px solid #2a2f3a;border-radius:6px}
+button{background:#3ddb85;color:#000;font-weight:600;cursor:pointer}pre{white-space:pre-wrap;color:#8b93a3}</style>
+<h3>modules/calling — fan-out test</h3>
+<input id=contact value=Dhruv><input id=to placeholder="+1555..."><textarea id=msg rows=4>Test alert from GozAlti Safe Walk.</textarea>
+<button onclick=go()>send</button><pre id=out></pre>
+<script>async function go(){const r=await fetch('/alert',{method:'POST',headers:{'Content-Type':'application/json'},
+body:JSON.stringify({contact:contact.value,to:to.value,message:msg.value})});out.textContent=JSON.stringify(await r.json(),null,2)}</script>
+"""
+
+
+class Handler(BaseHTTPRequestHandler):
+    def _send(self, code, obj, ctype="application/json"):
+        body = obj if isinstance(obj, bytes) else json.dumps(obj, indent=2).encode()
+        self.send_response(code)
+        self.send_header("Content-Type", ctype)
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type")
+        self.end_headers()
+        self.wfile.write(body)
+
+    def do_OPTIONS(self):
+        self._send(204, b"")
+
+    def do_GET(self):
+        path = urllib.parse.urlparse(self.path).path
+        if path == "/health":
+            self._send(200, {"ok": True, "port": PORT, "channels": armed(),
+                             "rings_a_phone": armed()["twilio"] or armed()["callmebot"]})
+        elif path == "/":
+            self._send(200, PAGE.encode(), "text/html; charset=utf-8")
+        else:
+            self._send(404, {"error": "not found"})
+
+    def do_POST(self):
+        if urllib.parse.urlparse(self.path).path != "/alert":
+            return self._send(404, {"error": "not found"})
+        try:
+            n = int(self.headers.get("Content-Length") or 0)
+            payload = json.loads(self.rfile.read(n) or b"{}")
+        except Exception as e:
+            return self._send(400, {"error": f"bad JSON: {e}"})
+
+        message = (payload.get("message") or "").strip()
+        if not message:
+            return self._send(400, {"error": "message is required"})
+        contact = (payload.get("contact") or "your contact").strip()
+        to = (payload.get("to") or os.environ.get("CALLING_CONTACT_NUMBER") or "").strip()
+
+        if blocked(to):
+            # Loud refusal, logged, 403. This is the one thing in this file that must
+            # never be softened into a warning.
+            sys.stderr.write(f"REFUSED emergency destination: {to!r}\n")
+            return self._send(403, {
+                "error": "refused: this service never contacts emergency services",
+                "rule": "modules/offpath-911 binding rule 1",
+            })
+
+        reached, results = fan_out(message, contact, to)
+        self._send(200 if reached else 502, {
+            "reached": reached,
+            "channels": results,
+            # The caller told a person "I'm calling someone" — it needs to know whether
+            # that was true, not just whether we tried.
+            "note": ("at least one channel accepted the alert" if reached
+                     else "NO channel accepted the alert — the user was not reached"),
+        })
+
+    def log_message(self, fmt, *args):
+        sys.stderr.write("[calling] " + fmt % args + "\n")
+
+
+if __name__ == "__main__":
+    a = armed()
+    print(f"[calling] :{PORT}  armed={[k for k, v in a.items() if v] or 'NONE'}", file=sys.stderr)
+    if not (a["twilio"] or a["callmebot"]):
+        print("[calling] nothing armed that RINGS — set CALLMEBOT_USER (free) or TWILIO_*",
+              file=sys.stderr)
+    ThreadingHTTPServer(("0.0.0.0", PORT), Handler).serve_forever()

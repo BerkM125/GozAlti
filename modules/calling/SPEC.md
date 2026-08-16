@@ -1,4 +1,4 @@
-# modules/calling — outbound call to a designated contact (OPTIONAL)
+# modules/calling — SPEC (see README.md for the built service)
 
 **Owner:** unassigned · **Effort budget:** 1 h · **Cut first if time runs out.**
 

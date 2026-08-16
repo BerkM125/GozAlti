@@ -4,30 +4,33 @@ import UIKit
 
 /// Placing the call, and being honest about what iOS allows.
 ///
-/// WHY THERE IS NO ZERO-TAP DIAL
-/// -----------------------------
-/// Siri can place a call without confirmation. Third-party apps cannot, and this is not
-/// an API we have failed to find:
+/// CAN THE SERVER HOOK GO THROUGH APPLE'S CALL FEATURE?
+/// ----------------------------------------------------
+/// No, and the reason is worth writing down because it looks like it should work.
 ///
-///  * Siri runs as an Apple system process with private entitlements. There is no public
-///    equivalent and none can be requested.
-///  * SiriKit's `INStartCallIntent` is for VoIP apps starting calls *in their own
-///    service*. Donating an intent describes an action; it does not perform one.
-///  * CallKit reports and manages VoIP calls. It cannot originate a cellular call.
-///  * Shortcuts' Call action still requires user confirmation when invoked from an app.
-///  * `tel:` always presents the system confirmation sheet.
+/// Everything Apple exposes for calling is *outbound from this app on this device*:
 ///
-/// So the phone gets ONE tap, which is also the confirmation gate — the user has now
-/// confirmed twice, once by voice and once in the dialer.
+///  * `tel:` / `facetime-audio:` — open a confirmation sheet. Local only. A push
+///    notification cannot open one; URL schemes need a foreground user gesture.
+///  * CallKit — reports and manages calls belonging to *our own VoIP service*. It cannot
+///    originate a cellular call, and there is no VoIP service behind this app.
+///  * SiriKit `INStartCallIntent` — same story: our service, and donating an intent
+///    describes an action rather than performing one.
+///  * Shortcuts' Call action — still confirms when triggered from an app.
 ///
-/// THE ZERO-TAP PATH IS SERVER-SIDE
-/// --------------------------------
-/// To call someone automatically *and read them the situation*, the call is placed by a
-/// backend (Twilio and friends), not by this phone. That is strictly better for the case
-/// that matters: it still works when the user's phone is broken, taken, or out of
-/// battery. `callServerURL` points at that backend; when it is unset we fall back to the
-/// dialer and say so rather than pretending a call went out.
+/// So a backend can never reach in and make this phone dial. Siri does it with private
+/// entitlements that are not requestable. Apple's own Check In and Emergency SOS are
+/// system processes, not apps, which is exactly why they can do what we cannot.
 ///
+/// That leaves two real options, and they split cleanly:
+///
+///  1. ONE TAP, FREE, NOW — `tel:` for the call, MessageUI for the text. The tap is also
+///     a second confirmation, after the voice one.
+///  2. ZERO TAP — a backend places the call itself (Twilio and friends) and reads the
+///     report aloud. Strictly better for the case that matters, because it still works
+///     when the phone is broken, taken, or dead. `callServerURL` points at that backend.
+///
+/// Unset, we fall back to the dialer and say so rather than pretending a call went out.
 /// Per modules/offpath-911's binding rules this only ever contacts a nominated person.
 /// Emergency services are never dialed from this codebase.
 @MainActor
@@ -37,32 +40,20 @@ final class Caller: ObservableObject {
     @Published var lastError: String?
     @Published var lastOutcome = ""
 
-    /// Optional backend that places the call and speaks the situation. Empty = dialer.
+    /// Optional backend that rings the contact and speaks the situation — modules/calling
+    /// on the Acer box, `http://<box>:8060/alert`. Empty = dialer, one tap.
     @AppStorage("callServerURL") var callServerURL = ""
-
-    /// What we would tell the contact. Only evidence-linked facts — never improvised
-    /// colour about the user's surroundings (offpath-911 binding rule 3).
-    func situationReport(state: String, lat: Double? = nil, lon: Double? = nil) -> String {
-        var parts = ["This is an automated call from GözAltı Safe Walk.",
-                     "\(contact), your contact asked me to reach you."]
-        if let lat, let lon {
-            parts.append(String(format: "Their last known position is %.5f, %.5f.", lat, lon))
-        } else {
-            parts.append("No location fix was available.")
-        }
-        parts.append("They confirmed by voice that they wanted you contacted.")
-        return parts.joined(separator: " ")
-    }
+    var hasServer: Bool { !callServerURL.trimmingCharacters(in: .whitespaces).isEmpty }
 
     /// One tap: hands the number to the Phone app, user connects.
-    func place() -> String {
+    func place(fix: Fix?) -> String {
         let digits = number.filter { $0.isNumber || $0 == "+" }
         guard !digits.isEmpty else {
             lastError = "No number set for \(contact)."
             return lastError!
         }
         if !callServerURL.isEmpty {
-            Task { await placeViaServer(digits) }
+            Task { await placeViaServer(digits, fix: fix) }
             return "Asking the server to call \(contact)…"
         }
         guard let url = URL(string: "tel://\(digits)"),
@@ -76,7 +67,7 @@ final class Caller: ObservableObject {
     }
 
     /// Zero-tap: the backend rings the contact and reads the situation aloud.
-    private func placeViaServer(_ digits: String) async {
+    private func placeViaServer(_ digits: String, fix: Fix?) async {
         guard let url = URL(string: callServerURL) else {
             lastError = "Bad call-server URL"; return
         }
@@ -86,7 +77,7 @@ final class Caller: ObservableObject {
         req.timeoutInterval = 15
         req.httpBody = try? JSONSerialization.data(withJSONObject: [
             "to": digits, "contact": contact,
-            "message": situationReport(state: "escalate"),
+            "message": Situation.report(contact: contact, fix: fix, spoken: true),
         ])
         do {
             let (data, resp) = try await URLSession.shared.data(for: req)

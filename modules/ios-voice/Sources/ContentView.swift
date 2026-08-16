@@ -1,3 +1,4 @@
+import MessageUI
 import SwiftUI
 
 @main
@@ -9,7 +10,9 @@ struct ContentView: View {
     @StateObject private var speech = Speech()
     @StateObject private var dlg = LocalDialogue()
     @StateObject private var caller = Caller()
-    @State private var status = "Set your laptop's address, then press a trigger."
+    @StateObject private var msg = Messenger()
+    @StateObject private var loc = Locator()
+    @State private var status = "Name a contact, then press a trigger."
     @AppStorage("contact") private var savedContact = "Dhruv"
     @AppStorage("number") private var savedNumber = ""
 
@@ -29,6 +32,7 @@ struct ContentView: View {
                     micButton
                     triggers
                     answers
+                    if dlg.escalated { escalationActions }
                     transcript
                     footer
                 }
@@ -36,10 +40,16 @@ struct ContentView: View {
             }
         }
         .preferredColorScheme(.dark)
+        .sheet(isPresented: $msg.showing) {
+            MessageSheet(recipient: caller.number, body: msg.body) { result in
+                msg.finish(result)
+            }
+        }
         .task {
             dlg.contact = savedContact
             caller.number = savedNumber
             caller.contact = savedContact
+            loc.start()
             await speech.requestPermissions()
         }
     }
@@ -55,6 +65,7 @@ struct ContentView: View {
     }
 
     private var settings: some View {
+        VStack(spacing: 8) {
         HStack(spacing: 8) {
             field("who to call", text: Binding(
                 get: { dlg.contact },
@@ -62,6 +73,11 @@ struct ContentView: View {
             field("number", text: Binding(
                 get: { caller.number },
                 set: { caller.number = $0; savedNumber = $0 }), keyboard: .phonePad)
+        }
+        // Optional. Set it and modules/calling on the Acer box fans the alert out to
+        // every channel at once — the only way anything actually rings unattended.
+        field("alert service (optional) e.g. http://10.0.0.5:8060/alert",
+              text: $caller.callServerURL)
         }
     }
 
@@ -94,11 +110,11 @@ struct ContentView: View {
                 Text("heard: \(speech.heard)  (\(String(format: "%.2f", speech.confidence)))")
                     .font(.system(size: 12, design: .monospaced)).foregroundStyle(.secondary)
             }
-            if let p = speech.permissionProblem {
-                Text(p).font(.system(size: 12, design: .monospaced)).foregroundStyle(bad)
+            ForEach([speech.permissionProblem, loc.problem, caller.lastError].compactMap { $0 }, id: \.self) { p in
+                Text(p).font(.system(size: 11, design: .monospaced)).foregroundStyle(bad)
             }
-            if let e = caller.lastError {
-                Text(e).font(.system(size: 11, design: .monospaced)).foregroundStyle(bad)
+            if !msg.outcome.isEmpty {
+                Text(msg.outcome).font(.system(size: 11, design: .monospaced)).foregroundStyle(go)
             }
         }
     }
@@ -133,6 +149,16 @@ struct ContentView: View {
         }
     }
 
+    /// Both channels stay reachable after escalation. The text is the default because it
+    /// carries the map link; the call is there because a ringing phone gets attention a
+    /// notification does not.
+    private var escalationActions: some View {
+        HStack(spacing: 8) {
+            btn("text \(dlg.contact)") { msg.compose(contact: dlg.contact, fix: loc.current) }
+            btn("call \(dlg.contact)") { status = caller.place(fix: loc.current) }
+        }
+    }
+
     private func btn(_ title: String, tint: Color? = nil,
                      action: @escaping () -> Void) -> some View {
         Button(action: action) {
@@ -163,7 +189,12 @@ struct ContentView: View {
             Text("recognition: \(speech.onDevice ? "on-device (audio never leaves this phone)" : "server-backed")")
                 .foregroundStyle(speech.onDevice ? go : .orange)
             Text("voice: \(speech.voiceName)")
-            Text("The decision is made on this phone by a deterministic state machine, never by a language model. Two explicit answers are required; silence never escalates; cancel always wins. We call the person named above — never emergency services.")
+            if let f = loc.current {
+                Text(String(format: "fix: %.5f, %.5f  ±%.0fm", f.lat, f.lon, f.accuracy))
+            } else {
+                Text("fix: none — the message will say so")
+            }
+            Text("The decision is made on this phone by a deterministic state machine, never by a language model. Two explicit answers are required; silence never escalates; cancel always wins. We contact the person named above — never emergency services. iOS requires you to press Send; no app may text or dial on your behalf unattended.")
                 .padding(.top, 4)
         }
         .font(.system(size: 10, design: .monospaced))
@@ -173,6 +204,7 @@ struct ContentView: View {
     // MARK: flow
 
     private func begin(_ trigger: String) {
+        msg.outcome = ""
         dlg.start(trigger: trigger)
         speak()
     }
@@ -183,12 +215,17 @@ struct ContentView: View {
     }
 
     /// Speak the prompt, and only when it finishes open the mic — otherwise the
-    /// recogniser transcribes our own voice. On escalation, hand off to the dialer.
+    /// recogniser transcribes our own voice. On escalation, stage the text: it carries
+    /// the map link, and the user only has to press Send.
     private func speak() {
         let line = dlg.say
         speech.say(line) {
             if dlg.escalated {
-                status = caller.place()
+                // Server first: it is the only path that reaches the contact without a
+                // tap. The compose sheet is the belt to its braces, never the reverse.
+                if caller.hasServer { status = caller.place(fix: loc.current) }
+                msg.compose(contact: dlg.contact, fix: loc.current)
+                if !msg.outcome.isEmpty { status = msg.outcome }
             } else if dlg.state.awaitingAnswer {
                 startListening()
             }
