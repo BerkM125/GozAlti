@@ -65,7 +65,8 @@ def _report_escalation(sid: str, d: Dialogue, evidence: dict):
     """Hand off to offpath-911. This module NEVER contacts anyone itself."""
     _stats["escalations"] += 1
     payload = {"session_id": sid, "trigger": d.trigger,
-               "confirmed_at": time.time(), "transcript": d.transcript_log(),
+               "confirmed_at": time.time(), "contact": d.contact,
+               "transcript": d.transcript_log(),
                "evidence": evidence}
     if not ESCALATION_URL:
         print(f"[audio-lm] ESCALATION CONFIRMED (no ESCALATION_URL set — logged only) "
@@ -85,7 +86,7 @@ def _report_escalation(sid: str, d: Dialogue, evidence: dict):
 
 def _view(sid: str, d: Dialogue, say: str = "", extra: dict | None = None) -> dict:
     out = {"session_id": sid, "state": d.state.value, "say": say, "done": d.done,
-           "trigger": d.trigger, "reprompts": d.reprompts,
+           "trigger": d.trigger, "contact": d.contact, "reprompts": d.reprompts,
            "escalated": d.state is State.ESCALATE, "turns": len(d.history)}
     if extra:
         out.update(extra)
@@ -153,7 +154,8 @@ class H(BaseHTTPRequestHandler):
         if p == "/session":
             sid = uuid.uuid4().hex[:12]
             d = Dialogue()
-            say = d.start(trigger=body.get("trigger", "manual"))
+            say = d.start(trigger=body.get("trigger", "manual"),
+                          contact=str(body.get("contact", "") or ""))
             with _lock:
                 _sessions[sid] = d
                 _stats["sessions"] += 1

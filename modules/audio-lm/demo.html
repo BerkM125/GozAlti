@@ -28,6 +28,8 @@ button:active{background:#1e2530}
 button.mic{flex:1 1 100%;background:var(--go);color:#0d1016;font-weight:700;border-color:var(--go);font-size:17px}
 button.mic.live{background:var(--bad);border-color:var(--bad);color:#fff}
 button.cancel{background:#2a1618;border-color:#4a2226;color:var(--bad)}
+input{flex:1 1 100%;background:var(--card);color:var(--ink);border:1px solid var(--line);
+border-radius:10px;padding:14px 12px;font:15px inherit}
 .pill{display:inline-block;font:10px var(--mono);letter-spacing:.08em;text-transform:uppercase;
 padding:3px 8px;border-radius:3px;border:1px solid currentColor}
 .s-escalate{color:var(--bad)}.s-ok{color:var(--go)}.s-wait{color:var(--warn)}.s-idle{color:var(--dim)}
@@ -46,7 +48,10 @@ margin:18px 0 6px;border-bottom:1px solid var(--line);padding-bottom:4px}
 <div class=said id=said>Press <b>simulate off-path</b> to start the confirmation dialogue.</div>
 <div class=heard id=heard></div>
 
-<button class=mic id=mic disabled>hold to answer</button>
+<div class=row>
+  <input id=contact placeholder="who to call, e.g. Dhruv" value="Dhruv">
+</div>
+<button class=mic id=mic disabled>listening…</button>
 <div class=row>
   <button id=start>simulate off-path</button>
   <button id=keyword>keyword trigger</button>
@@ -81,17 +86,83 @@ if (!secure) {
   banner("This browser has no Web Speech API. Tap buttons still work.");
 }
 
-$('#notes').innerHTML =
-  `secure context: <b>${secure}</b> · SpeechRecognition: <b>${!!SR}</b> · `
-  + `speechSynthesis: <b>${!!window.speechSynthesis}</b><br>`
-  + `The decision is made by the state machine on the server, never by a language model. `
-  + `Escalation needs TWO explicit answers, silence never escalates, and cancel always wins.`;
+// WHERE THE AUDIO ACTUALLY GOES — this differs by browser and it matters for a feature
+// about someone in trouble. Safari's Web Speech API is backed by Apple's on-device
+// engine (the same one behind SFSpeechRecognizer). Chrome's webkitSpeechRecognition
+// STREAMS AUDIO TO GOOGLE. Report it honestly rather than claiming "on-device".
+const isSafari = /^((?!chrome|android|crios|fxios).)*safari/i.test(navigator.userAgent);
+const sttWhere = !SR ? 'unavailable'
+               : isSafari ? 'Apple, on-device' : 'Google cloud (Chrome sends your audio)';
 
-function speak(text){
-  if (!text || !window.speechSynthesis) return;
+$('#notes').innerHTML =
+  `secure context: <b>${secure}</b> · speech recognition: <b>${sttWhere}</b><br>`
+  + `voice: <b id=voice>…</b><br>`
+  + `The decision is made by the state machine on the server, never by a language model. `
+  + `Escalation needs TWO explicit answers, silence never escalates, and cancel always wins. `
+  + `We call the person named above — never emergency services.`;
+showVoice();
+
+if (SR && !isSafari) {
+  banner("Chrome sends microphone audio to Google for recognition. Use Safari for "
+       + "Apple's on-device engine — same APIs, nothing leaves the machine.");
+}
+
+// Voice selection. The default voice is usually the worst one installed, and on
+// Chrome getVoices() is EMPTY on first call until `voiceschanged` fires — speak too
+// early and you get the robotic fallback. That is the usual cause of "chopped and
+// gross". We wait for the list, then prefer known-good natural voices.
+let VOICE = null;
+// Best first. Apple ships several builds of the same voice — Premium > Enhanced >
+// Compact — and only the compact ones are installed by default, which is why the
+// stock voice sounds chopped. Match the good builds explicitly before falling back.
+const VOICE_PREFS = [
+  'Siri', 'Premium', 'Enhanced',
+  'Samantha', 'Ava', 'Allison', 'Susan', 'Serena', 'Zoe', 'Nicky',
+  'Google US English', 'Google UK English Female',
+  'Microsoft Aria', 'Microsoft Jenny',
+];
+function pickVoice(){
+  const vs = speechSynthesis.getVoices();
+  if (!vs.length) return null;
+  for (const want of VOICE_PREFS){
+    const v = vs.find(v => v.name.includes(want));
+    if (v) return v;
+  }
+  // else: prefer a non-local (network) en voice — they are markedly less robotic
+  return vs.find(v => /^en/i.test(v.lang) && !v.localService)
+      || vs.find(v => /^en/i.test(v.lang))
+      || vs[0];
+}
+if (window.speechSynthesis){
+  VOICE = pickVoice();
+  speechSynthesis.onvoiceschanged = () => { VOICE = pickVoice() || VOICE; showVoice(); };
+}
+function showVoice(){
+  const el = document.getElementById('voice');
+  if (!el) return;
+  if (!VOICE) { el.textContent = 'default'; return; }
+  // Compact voices are the ones that sound clipped and robotic. The Enhanced/Premium
+  // builds of the SAME voice are a free download and sound markedly better:
+  // System Settings > Accessibility > Spoken Content > System Voice > Manage Voices.
+  const better = /siri|premium|enhanced|google|natural/i.test(VOICE.name);
+  el.textContent = VOICE.name + ' (' + VOICE.lang + ')'
+    + (better ? '' : ' — compact build; install an Enhanced voice for better audio');
+  el.style.color = better ? 'var(--go)' : 'var(--warn)';
+}
+
+function speak(text, onDone){
+  if (!text || !window.speechSynthesis) { onDone && onDone(); return; }
   speechSynthesis.cancel();
   const u = new SpeechSynthesisUtterance(text);
-  u.rate = 1.02; u.pitch = 1.0;
+  if (VOICE) u.voice = VOICE;
+  u.rate = 0.98;        // a touch under default reads calmer and clips less
+  u.pitch = 1.0;
+  u.volume = 1.0;
+  // Chrome drops long utterances after ~15 s unless nudged; ours are short, but the
+  // resume() guard costs nothing and prevents a mid-sentence cut.
+  const guard = setInterval(() => { if (speechSynthesis.speaking) speechSynthesis.resume(); }, 5000);
+  u.onend = () => { clearInterval(guard); onDone && onDone(); };
+  u.onerror = () => { clearInterval(guard); onDone && onDone(); };
   speechSynthesis.speak(u);
 }
 
@@ -103,9 +174,15 @@ function render(r){
   $('#state').innerHTML = `<span class="pill ${cls}">${r.state}</span> `
     + `session ${r.session_id || '—'} · turn ${r.turns ?? 0}`
     + (r.reprompts ? ` · reprompt ${r.reprompts}` : '');
-  if (r.say) { $('#said').textContent = r.say; speak(r.say); }
   const active = SID && !r.done;
-  for (const id of ['yes','no','mumble','cancel','mic']) $('#'+id).disabled = !active;
+  if (r.say) {
+    $('#said').textContent = r.say;
+    // Speak, THEN open the mic — exactly when the question finishes, no button held.
+    // Listening while we are still talking makes the recogniser hear our own voice.
+    speak(r.say, () => { if (active && awaitingAnswer(r.state)) listen(); });
+  }
+  for (const id of ['yes','no','mumble','cancel']) $('#'+id).disabled = !active;
+  $('#mic').disabled = !active;
   if (r.escalation) {
     banner(r.escalation.delivered
       ? "Escalation handed to offpath-911 (SIMULATED endpoint)."
@@ -131,7 +208,8 @@ async function refreshLog(){
 }
 
 async function begin(trigger){
-  const r = await post('/session', {trigger});
+  const contact = ($('#contact').value || '').trim();
+  const r = await post('/session', {trigger, contact});
   $('#heard').textContent = '';
   banner('');
   render(r);
@@ -150,27 +228,43 @@ $('#no').onclick = () => hear('no', 0.95);
 $('#mumble').onclick = () => hear('uhh mmm', 0.9);
 $('#cancel').onclick = async () => render(await post(`/session/${SID}/cancel`));
 
-// --- real microphone -------------------------------------------------------------
+// --- microphone: opens itself the moment the question finishes -------------------
+// Hold-to-talk was the wrong interaction here. Someone who has just been asked if they
+// are okay should be able to answer, not find and hold a button — and on desktop the
+// mousedown/mouseup pair fired faster than the recogniser could start, so it captured
+// nothing at all. This is the Apple shape: it asks, then it is already listening.
+function awaitingAnswer(state){
+  return state === 'asked_wellbeing' || state === 'asked_escalate';
+}
+
+function listen(){
+  if (!rec || listening) return;
+  listening = true;
+  $('#mic').classList.add('live');
+  $('#mic').textContent = 'listening — just answer';
+  try { rec.start(); } catch { listening = false; }
+}
+
 if (SR && secure) {
   rec = new SR();
   rec.lang = 'en-US'; rec.interimResults = false; rec.maxAlternatives = 1;
+  rec.continuous = false;
   rec.onresult = e => {
     const res = e.results[e.results.length - 1][0];
     // The recogniser's own confidence is passed through untouched — the state machine
     // treats anything under its threshold as not heard rather than as a best guess.
     hear(res.transcript.trim(), typeof res.confidence === 'number' ? res.confidence : 0.9);
   };
-  rec.onerror = ev => banner('speech error: ' + ev.error);
+  rec.onerror = ev => {
+    listening = false;
+    if (ev.error === 'no-speech') { $('#mic').textContent = 'didn\'t hear you — tap to retry'; }
+    else if (ev.error === 'not-allowed') { banner('Microphone permission denied.'); }
+    else { banner('speech error: ' + ev.error); }
+  };
   rec.onend = () => { listening = false; $('#mic').classList.remove('live');
-                      $('#mic').textContent = 'hold to answer'; };
-  const startRec = e => { e.preventDefault(); if (listening || !SID) return;
-    listening = true; $('#mic').classList.add('live'); $('#mic').textContent = 'listening…';
-    try { rec.start(); } catch {} };
-  const stopRec = e => { e.preventDefault(); if (listening) try { rec.stop(); } catch {} };
-  $('#mic').addEventListener('touchstart', startRec);
-  $('#mic').addEventListener('touchend', stopRec);
-  $('#mic').addEventListener('mousedown', startRec);
-  $('#mic').addEventListener('mouseup', stopRec);
+                      $('#mic').textContent = 'tap to answer'; };
+  // Tap is now a retry, not a hold.
+  $('#mic').addEventListener('click', () => { if (SID) listen(); });
 } else {
   $('#mic').textContent = 'mic unavailable — use the buttons';
 }

@@ -130,15 +130,56 @@ class TestSafetyProperties(unittest.TestCase):
         self.assertEqual(d.state, State.RESOLVED_OK)
 
 
+class TestContactFraming(unittest.TestCase):
+    """We call a PERSON, never emergency services — offpath-911 forbids dialing 911 in
+    dev or demo, so the voice must not offer it either. A prompt promising emergency
+    services while a teammate is called is the same class of lie as announcing a call
+    that never happened."""
+
+    def test_no_user_facing_string_offers_emergency_services(self):
+        from dialogue import prompts_for, reprompts_for
+        for contact in ("", "Dhruv"):
+            for text in list(prompts_for(contact).values()) + list(reprompts_for(contact).values()):
+                low = text.lower()
+                self.assertNotIn("emergency services", low, text)
+                self.assertNotIn("911", low, text)
+
+    def test_named_contact_appears_in_the_question_and_the_confirmation(self):
+        d = Dialogue(); d.start(contact="Dhruv")
+        self.assertIn("Dhruv", d.hear("no"))
+        self.assertIn("Dhruv", d.hear("yes"))
+        self.assertEqual(d.state, State.ESCALATE)
+
+    def test_without_a_contact_it_stays_generic_not_911(self):
+        d = Dialogue(); d.start()
+        said = d.hear("no")
+        self.assertIn("emergency contact", said)
+        self.assertNotIn("911", said)
+
+    def test_reprompt_also_names_the_contact(self):
+        d = Dialogue(); d.start(contact="Ioli")
+        d.hear("no")
+        self.assertIn("Ioli", d.hear("mumble"))
+
+    def test_user_saying_call_911_is_still_heard_as_distress(self):
+        """We never OFFER 911, but if the user says it we must recognise the distress
+        and respond by offering their contact."""
+        self.assertEqual(classify("call 911"), Intent.HELP)
+        d = Dialogue(); d.start(contact="Dhruv")
+        said = d.hear("call 911")
+        self.assertEqual(d.state, State.ASKED_ESCALATE)
+        self.assertIn("Dhruv", said)
+
+
 class TestFlowAndLogging(unittest.TestCase):
     def test_canonical_spec_flow(self):
         """The exact exchange in modules/audio-lm/SPEC.md."""
         d = Dialogue()
         self.assertIn("off path", d.start(trigger="offpath"))
-        self.assertIn("emergency services", d.hear("No."))
+        self.assertIn("call", d.hear("No."))
         said = d.hear("Yes.")
         self.assertEqual(d.state, State.ESCALATE)
-        self.assertIn("Contacting", said)
+        self.assertIn("Calling", said)
 
     def test_terminal_states_ignore_further_input(self):
         d = Dialogue(); d.start(); d.hear("yeah I'm fine")

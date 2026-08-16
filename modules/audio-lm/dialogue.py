@@ -106,19 +106,36 @@ def classify(transcript: str, confidence: float = 1.0) -> Intent:
     return Intent.UNKNOWN          # both yes and no present -> refuse to guess
 
 
-PROMPTS = {
-    State.ASKED_WELLBEING: "Hey, I noticed you went off path. Everything good?",
-    State.ASKED_ESCALATE: "Should I contact emergency services with your exact location?",
-    State.RESOLVED_OK: "Okay. I'll keep watching the route.",
-    State.ESCALATE: "Contacting now. You can say cancel to stop.",
-    State.NEEDS_ATTENTION: "I couldn't tell. I've left an alert on your screen.",
-    State.CANCELLED: "Cancelled. Nothing was sent.",
-}
-REPROMPTS = {
-    State.ASKED_WELLBEING: "Sorry, I didn't catch that. Are you okay? Yes or no.",
-    State.ASKED_ESCALATE: "I need a clear answer. Should I contact emergency services? "
-                          "Yes or no.",
-}
+# We contact a PERSON the user nominated — never emergency services. offpath-911's
+# binding rules forbid dialing 911 in dev or demo, so the voice must not offer it either:
+# a prompt that says "emergency services" while the system calls a teammate is the same
+# class of lie as a model announcing a call it never made.
+DEFAULT_CONTACT = "your emergency contact"
+
+
+def prompts_for(contact: str | None = None) -> dict:
+    """Prompts naming the person we would actually call."""
+    who = (contact or "").strip() or DEFAULT_CONTACT
+    return {
+        State.ASKED_WELLBEING: "Hey, I noticed you went off path. Everything good?",
+        State.ASKED_ESCALATE: f"Do you want me to call {who} and share your location?",
+        State.RESOLVED_OK: "Okay. I'll keep watching the route.",
+        State.ESCALATE: f"Calling {who} now. Say cancel to stop.",
+        State.NEEDS_ATTENTION: "I couldn't tell. I've left an alert on your screen.",
+        State.CANCELLED: "Cancelled. Nothing was sent.",
+    }
+
+
+def reprompts_for(contact: str | None = None) -> dict:
+    who = (contact or "").strip() or DEFAULT_CONTACT
+    return {
+        State.ASKED_WELLBEING: "Sorry, I didn't catch that. Are you okay? Yes or no.",
+        State.ASKED_ESCALATE: f"I need a clear answer. Should I call {who}? Yes or no.",
+    }
+
+
+PROMPTS = prompts_for()
+REPROMPTS = reprompts_for()
 
 
 @dataclass
@@ -147,6 +164,15 @@ class Dialogue:
     last_prompt_at: float = 0.0
     history: list[Turn] = field(default_factory=list)
     trigger: str = ""                  # "offpath" | "keyword" | "manual"
+    contact: str = ""                  # who we would call; blank -> generic phrasing
+
+    @property
+    def prompts(self) -> dict:
+        return prompts_for(self.contact)
+
+    @property
+    def reprompts_text(self) -> dict:
+        return reprompts_for(self.contact)
 
     TERMINAL = {State.RESOLVED_OK, State.ESCALATE, State.NEEDS_ATTENTION, State.CANCELLED}
 
@@ -154,15 +180,17 @@ class Dialogue:
     def done(self) -> bool:
         return self.state in self.TERMINAL
 
-    def start(self, trigger: str = "offpath", now: float | None = None) -> str:
-        """Begin the dialogue. Returns what to say."""
+    def start(self, trigger: str = "offpath", now: float | None = None,
+              contact: str = "") -> str:
+        """Begin the dialogue. `contact` is the person we would call. Returns what to say."""
         now = time.time() if now is None else now
         self.state = State.ASKED_WELLBEING
         self.trigger = trigger
+        self.contact = contact or self.contact
         self.started_at = now
         self.last_prompt_at = now
         self.reprompts = 0
-        return PROMPTS[State.ASKED_WELLBEING]
+        return self.prompts[State.ASKED_WELLBEING]
 
     def hear(self, transcript: str, confidence: float = 1.0,
              now: float | None = None) -> str:
@@ -178,7 +206,7 @@ class Dialogue:
         if intent is Intent.CANCEL:
             self.state = State.CANCELLED
             return self._record(now, before, transcript, confidence, intent,
-                                PROMPTS[State.CANCELLED])
+                                self.prompts[State.CANCELLED])
 
         if self.state is State.ASKED_WELLBEING:
             if intent is Intent.YES:            # "I'm fine"
@@ -201,7 +229,7 @@ class Dialogue:
 
         self.last_prompt_at = now
         return self._record(now, before, transcript, confidence, intent,
-                            PROMPTS[self.state])
+                            self.prompts[self.state])
 
     def tick(self, now: float | None = None) -> str:
         """Call periodically. Handles the silence case. NEVER escalates."""
@@ -214,10 +242,10 @@ class Dialogue:
         if self.reprompts >= MAX_REPROMPTS:
             self.state = State.NEEDS_ATTENTION
             return self._record(now, before, "", 0.0, Intent.UNKNOWN,
-                                PROMPTS[State.NEEDS_ATTENTION])
+                                self.prompts[State.NEEDS_ATTENTION])
         self.reprompts += 1
         self.last_prompt_at = now
-        return self._record(now, before, "", 0.0, Intent.UNKNOWN, REPROMPTS[before])
+        return self._record(now, before, "", 0.0, Intent.UNKNOWN, self.reprompts_text[before])
 
     def cancel(self, now: float | None = None) -> str:
         """The always-available CANCEL (a button, not only a spoken word)."""
@@ -225,16 +253,16 @@ class Dialogue:
         before = self.state
         self.state = State.CANCELLED
         return self._record(now, before, "[cancel button]", 1.0, Intent.CANCEL,
-                            PROMPTS[State.CANCELLED])
+                            self.prompts[State.CANCELLED])
 
     def _reprompt(self, now, before, transcript, confidence, intent) -> str:
         if self.reprompts >= MAX_REPROMPTS:
             self.state = State.NEEDS_ATTENTION
             return self._record(now, before, transcript, confidence, intent,
-                                PROMPTS[State.NEEDS_ATTENTION])
+                                self.prompts[State.NEEDS_ATTENTION])
         self.reprompts += 1
         self.last_prompt_at = now
-        return self._record(now, before, transcript, confidence, intent, REPROMPTS[before])
+        return self._record(now, before, transcript, confidence, intent, self.reprompts_text[before])
 
     def _record(self, now, before, transcript, confidence, intent, said) -> str:
         self.history.append(Turn(at=round(now, 3), state_before=before,
