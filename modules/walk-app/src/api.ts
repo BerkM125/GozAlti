@@ -2,8 +2,10 @@ import { API_BASE } from "./config.ts";
 import { isUnavailable } from "./types.ts";
 import type {
   Convergence,
+  CvResult,
   FrameRecord,
   LatLng,
+  LivePathTick,
   LngLat,
   Observation,
   PathObject,
@@ -44,9 +46,12 @@ async function fetchOnePath(
   kind: "safer" | "shortest",
 ): Promise<PathObject | Unavailable> {
   let res: Response;
+  // Only the safer trip starts a PathLiveSession upstream; the shortest one
+  // is a static baseline and stays one-and-done.
+  const live = kind === "safer";
   try {
     res = await fetch(
-      `${API_BASE}/api/path?from=${origin[1]},${origin[0]}&to=${dest[1]},${dest[0]}&kind=${kind}&live=false`,
+      `${API_BASE}/api/path?from=${origin[1]},${origin[0]}&to=${dest[1]},${dest[0]}&kind=${kind}&live=${live}`,
       { signal: AbortSignal.timeout(20_000) },
     );
   } catch {
@@ -79,6 +84,60 @@ export async function fetchPath(origin: LngLat, dest: LngLat): Promise<PathPair 
   if (isUnavailable(shortest)) return shortest;
   return { safer, shortest };
 }
+
+/**
+ * One PathLiveSession poll. "expired" means the session is gone upstream
+ * (180 s TTL or explicit stop) and polling should cease; Unavailable is a
+ * transient miss the caller should ride out without tearing anything down.
+ */
+export async function fetchLivePath(
+  pathId: string,
+  since: number,
+): Promise<LivePathTick | "expired" | Unavailable> {
+  let res: Response;
+  try {
+    res = await fetch(
+      `${API_BASE}/api/path/live/${encodeURIComponent(pathId)}?since=${since}`,
+      { signal: AbortSignal.timeout(8000) },
+    );
+  } catch {
+    return { ok: false, why: "couldn't reach the walk-app server" };
+  }
+  if (res.status === 404) return "expired";
+  if (!res.ok) return { ok: false, why: `live poll returned ${res.status}` };
+  return (await res.json()) as LivePathTick;
+}
+
+/**
+ * Fire-and-forget session stop. Failure is fine: the server expires the
+ * session 180 s after the last poll anyway.
+ */
+export function stopLivePath(pathId: string): void {
+  fetch(`${API_BASE}/api/path/live/${encodeURIComponent(pathId)}`, {
+    method: "DELETE",
+    signal: AbortSignal.timeout(5000),
+  }).catch(() => {});
+}
+
+/**
+ * Local-CNN detections with world positions for one camera. The plain call
+ * answers from media-ingest's cache in milliseconds and never triggers an
+ * upstream fetch, so it is safe to poll fast; `backend:"detlib"` + force is
+ * the one-shot HQ still pass and can take tens of seconds.
+ */
+export const fetchCameraCv = (
+  cameraId: string,
+  opts?: { backend?: "detlib"; force?: boolean },
+): Promise<CvResult | Unavailable> => {
+  const q = new URLSearchParams();
+  if (opts?.backend) q.set("backend", opts.backend);
+  if (opts?.force) q.set("force", "true");
+  const qs = q.size ? `?${q}` : "";
+  return get<CvResult>(
+    `/api/cv/camera/${encodeURIComponent(cameraId)}${qs}`,
+    opts?.force ? 50_000 : 10_000,
+  );
+};
 
 export async function fetchRoute(
   origin: LngLat,

@@ -190,6 +190,49 @@ export type PathRefuge = {
   open_now?: boolean;
 };
 
+/**
+ * media-ingest's local-CNN world-position estimate for one detection
+ * (`ingest/locate.py`). `bearing_basis === "axis-only-unresolved"` means the
+ * camera's bearing came from the road axis alone and could be 180° off.
+ */
+export type CvEst = {
+  lat: number;
+  lon: number;
+  bearing_deg: number;
+  range_m: number;
+  pos_conf: number;
+  method: string;
+  bearing_basis: string;
+};
+
+export type CvDetection = {
+  label: string;
+  conf: number;
+  /** null = no camera bearing, so no honest position. Never drawn. */
+  est: CvEst | null;
+  /** [length, width, height] metres for the label class, for the 3D mesh. */
+  footprint_m: [number, number, number] | null;
+};
+
+/** One `/api/cv/camera/{cid}` result — also the values of `cv_detections`. */
+export type CvResult = {
+  ok: boolean;
+  camera_id: string;
+  model?: string;
+  took_ms?: number;
+  cached?: boolean;
+  frame_ts?: string | number | null;
+  detections?: CvDetection[];
+  why?: string;
+};
+
+/** One `/api/path/live/{path_id}` poll answer. */
+export type LivePathTick = {
+  version: number;
+  changed_since: boolean;
+  path: PathObject;
+};
+
 export type PathLiveMeta = {
   incorporated: boolean;
   basis: string;
@@ -212,7 +255,8 @@ export type PathObject = {
   segments: PathSegment[];
   cameras_en_route: string[];
   cameras_en_route_detail: PathCameraDetail[];
-  cv_detections: Record<string, unknown>;
+  /** Cached local-CNN results shipped WITH the path, keyed by camera id. */
+  cv_detections: Record<string, CvResult>;
   refuges_en_route: PathRefuge[];
   evidence_summary: string;
   risk_basis: string;
