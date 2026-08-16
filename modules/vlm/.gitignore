@@ -5,6 +5,8 @@ lab/log.jsonl
 lab/bench/
 lab/scene_out/
 lab/*.jsonl
+# the answer key is an asset, not an artifact — it costs a human labelling pass to recreate
+!lab/labels.jsonl
 lab/detect_out/
 lab/clips/
 lab/video_out/
