@@ -31,6 +31,8 @@
   <main id="center">
     <div id="map">
       <div id="map-btns">
+        <button id="btn-path" title="click two points → evidence-weighted safer route (risk-colored segments, en-route cameras, open exits); mode turns itself off once the path is entered">PATH</button>
+        <button id="btn-goto" title="one click → safer route from YOUR current location to that spot (enables location automatically)">TAKE ME TO</button>
         <button id="btn-loc" title="my location → cameras that cover it">LOC</button>
         <button id="btn-ref" class="on" title="open businesses to duck into (OSM opening_hours)">REF</button>
         <button id="btn-sat" title="satellite basemap">SAT</button>
@@ -94,6 +96,9 @@
 
         <div class="panel-title" style="margin-top:12px">LOCAL CV — CARS + PEOPLE (3D)</div>
         <div id="c-cv" class="reason dim">focus a camera to start the live loop</div>
+        <button id="btn-hq" class="act" style="margin-top:6px"
+                title="one forward pass through Adi's detlib (torchvision) — the source-of-truth detector; slower on CPU, ~65ms on the Spark">
+          HQ PASS — ADI'S DETLIB</button>
 
         <div class="panel-title" style="margin-top:12px">LIVE DETECTIONS (VLM)</div>
         <div id="c-detections" class="reason dim">none yet</div>

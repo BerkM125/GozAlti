@@ -1,0 +1,271 @@
+<!doctype html>
+<meta charset=utf-8>
+<meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>audio-lm — voice confirmation</title>
+<!-- Phone-first. STT/TTS run on-device via the Web Speech API; the decision lives in
+     service.py's state machine. Requires a SECURE CONTEXT for the mic: https:// or
+     localhost. On a plain-http LAN address iOS silently denies it — see the banner. -->
+<style>
+:root{--bg:#0d1016;--card:#161b23;--line:#242c38;--ink:#e6eaf0;--dim:#8b95a4;
+--go:#3ddc84;--warn:#f2a93b;--bad:#e8443a;--mono:ui-monospace,'SF Mono',Menlo,monospace}
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+body{background:var(--bg);color:var(--ink);font:16px/1.5 -apple-system,system-ui,sans-serif;
+padding:16px;padding-bottom:env(safe-area-inset-bottom);max-width:560px;margin:0 auto}
+h1{font-size:13px;letter-spacing:.16em;text-transform:uppercase;color:var(--dim)}
+h1 b{color:var(--go);font-weight:600}
+.state{font:11px var(--mono);color:var(--dim);margin-top:2px}
+.banner{background:#2a1d14;border-left:3px solid var(--warn);padding:10px 12px;
+border-radius:0 4px 4px 0;font:12px var(--mono);color:var(--warn);margin:12px 0;display:none}
+.banner.on{display:block}
+.said{background:var(--card);border:1px solid var(--line);border-left:3px solid var(--go);
+border-radius:0 6px 6px 0;padding:14px 16px;margin:14px 0;font-size:18px;line-height:1.45;min-height:64px}
+.heard{font:13px var(--mono);color:var(--dim);margin:8px 0;min-height:20px}
+.heard b{color:var(--ink);font-weight:400}
+.row{display:flex;gap:8px;margin:10px 0;flex-wrap:wrap}
+button{flex:1 1 0;min-width:96px;background:var(--card);color:var(--ink);
+border:1px solid var(--line);border-radius:10px;padding:16px 12px;font:15px inherit;cursor:pointer}
+button:active{background:#1e2530}
+button.mic{flex:1 1 100%;background:var(--go);color:#0d1016;font-weight:700;border-color:var(--go);font-size:17px}
+button.mic.live{background:var(--bad);border-color:var(--bad);color:#fff}
+button.cancel{background:#2a1618;border-color:#4a2226;color:var(--bad)}
+input{flex:1 1 100%;background:var(--card);color:var(--ink);border:1px solid var(--line);
+border-radius:10px;padding:14px 12px;font:15px inherit}
+.pill{display:inline-block;font:10px var(--mono);letter-spacing:.08em;text-transform:uppercase;
+padding:3px 8px;border-radius:3px;border:1px solid currentColor}
+.s-escalate{color:var(--bad)}.s-ok{color:var(--go)}.s-wait{color:var(--warn)}.s-idle{color:var(--dim)}
+table{width:100%;border-collapse:collapse;font:11px var(--mono);margin-top:8px}
+td,th{padding:4px 6px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}
+th{color:var(--dim);font-size:9.5px;letter-spacing:.08em;text-transform:uppercase}
+h2{font:10px var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--dim);
+margin:18px 0 6px;border-bottom:1px solid var(--line);padding-bottom:4px}
+.note{font:11px var(--mono);color:var(--dim);line-height:1.7}
+</style>
+
+<h1>audio<b>·</b>lm — voice confirmation</h1>
+<div class=state id=state>idle</div>
+<div class=banner id=banner></div>
+
+<div class=said id=said>Press <b>simulate off-path</b> to start the confirmation dialogue.</div>
+<div class=heard id=heard></div>
+
+<div class=row>
+  <input id=contact placeholder="who to call, e.g. Dhruv" value="Dhruv">
+</div>
+<button class=mic id=mic disabled>listening…</button>
+<div class=row>
+  <button id=start>simulate off-path</button>
+  <button id=keyword>keyword trigger</button>
+</div>
+<div class=row>
+  <button id=yes disabled>“yes”</button>
+  <button id=no disabled>“no”</button>
+  <button id=mumble disabled>“mumble”</button>
+  <button class=cancel id=cancel disabled>cancel</button>
+</div>
+
+<h2>transcript — every hop is auditable</h2>
+<table id=log><tbody></tbody></table>
+
+<h2>notes</h2>
+<div class=note id=notes></div>
+
+<script>
+const $ = s => document.querySelector(s);
+const API = location.origin;
+let SID = null, rec = null, listening = false;
+
+const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+const secure = window.isSecureContext;
+
+function banner(msg){ const b=$('#banner'); b.textContent=msg; b.classList.toggle('on', !!msg); }
+
+if (!secure) {
+  banner("Mic blocked: this page is not a secure context. Voice needs https:// or localhost — "
+       + "on a plain-http LAN address iOS denies the mic silently. Tap buttons still work.");
+} else if (!SR) {
+  banner("This browser has no Web Speech API. Tap buttons still work.");
+}
+
+// WHERE THE AUDIO ACTUALLY GOES — this differs by browser and it matters for a feature
+// about someone in trouble. Safari's Web Speech API is backed by Apple's on-device
+// engine (the same one behind SFSpeechRecognizer). Chrome's webkitSpeechRecognition
+// STREAMS AUDIO TO GOOGLE. Report it honestly rather than claiming "on-device".
+const isSafari = /^((?!chrome|android|crios|fxios).)*safari/i.test(navigator.userAgent);
+const sttWhere = !SR ? 'unavailable'
+               : isSafari ? 'Apple, on-device' : 'Google cloud (Chrome sends your audio)';
+
+$('#notes').innerHTML =
+  `secure context: <b>${secure}</b> · speech recognition: <b>${sttWhere}</b><br>`
+  + `voice: <b id=voice>…</b><br>`
+  + `The decision is made by the state machine on the server, never by a language model. `
+  + `Escalation needs TWO explicit answers, silence never escalates, and cancel always wins. `
+  + `We call the person named above — never emergency services.`;
+showVoice();
+
+if (SR && !isSafari) {
+  banner("Chrome sends microphone audio to Google for recognition. Use Safari for "
+       + "Apple's on-device engine — same APIs, nothing leaves the machine.");
+}
+
+// Voice selection. The default voice is usually the worst one installed, and on
+// Chrome getVoices() is EMPTY on first call until `voiceschanged` fires — speak too
+// early and you get the robotic fallback. That is the usual cause of "chopped and
+// gross". We wait for the list, then prefer known-good natural voices.
+let VOICE = null;
+// Best first. Apple ships several builds of the same voice — Premium > Enhanced >
+// Compact — and only the compact ones are installed by default, which is why the
+// stock voice sounds chopped. Match the good builds explicitly before falling back.
+const VOICE_PREFS = [
+  'Siri', 'Premium', 'Enhanced',
+  'Samantha', 'Ava', 'Allison', 'Susan', 'Serena', 'Zoe', 'Nicky',
+  'Google US English', 'Google UK English Female',
+  'Microsoft Aria', 'Microsoft Jenny',
+];
+function pickVoice(){
+  const vs = speechSynthesis.getVoices();
+  if (!vs.length) return null;
+  for (const want of VOICE_PREFS){
+    const v = vs.find(v => v.name.includes(want));
+    if (v) return v;
+  }
+  // else: prefer a non-local (network) en voice — they are markedly less robotic
+  return vs.find(v => /^en/i.test(v.lang) && !v.localService)
+      || vs.find(v => /^en/i.test(v.lang))
+      || vs[0];
+}
+if (window.speechSynthesis){
+  VOICE = pickVoice();
+  speechSynthesis.onvoiceschanged = () => { VOICE = pickVoice() || VOICE; showVoice(); };
+}
+function showVoice(){
+  const el = document.getElementById('voice');
+  if (!el) return;
+  if (!VOICE) { el.textContent = 'default'; return; }
+  // Compact voices are the ones that sound clipped and robotic. The Enhanced/Premium
+  // builds of the SAME voice are a free download and sound markedly better:
+  // System Settings > Accessibility > Spoken Content > System Voice > Manage Voices.
+  const better = /siri|premium|enhanced|google|natural/i.test(VOICE.name);
+  el.textContent = VOICE.name + ' (' + VOICE.lang + ')'
+    + (better ? '' : ' — compact build; install an Enhanced voice for better audio');
+  el.style.color = better ? 'var(--go)' : 'var(--warn)';
+}
+
+function speak(text, onDone){
+  if (!text || !window.speechSynthesis) { onDone && onDone(); return; }
+  speechSynthesis.cancel();
+  const u = new SpeechSynthesisUtterance(text);
+  if (VOICE) u.voice = VOICE;
+  u.rate = 0.98;        // a touch under default reads calmer and clips less
+  u.pitch = 1.0;
+  u.volume = 1.0;
+  // Chrome drops long utterances after ~15 s unless nudged; ours are short, but the
+  // resume() guard costs nothing and prevents a mid-sentence cut.
+  const guard = setInterval(() => { if (speechSynthesis.speaking) speechSynthesis.resume(); }, 5000);
+  u.onend = () => { clearInterval(guard); onDone && onDone(); };
+  u.onerror = () => { clearInterval(guard); onDone && onDone(); };
+  speechSynthesis.speak(u);
+}
+
+function render(r){
+  SID = r.session_id || SID;
+  const cls = r.state === 'escalate' ? 's-escalate'
+            : (r.state === 'resolved_ok' || r.state === 'cancelled') ? 's-ok'
+            : r.state === 'needs_attention' ? 's-wait' : 's-idle';
+  $('#state').innerHTML = `<span class="pill ${cls}">${r.state}</span> `
+    + `session ${r.session_id || '—'} · turn ${r.turns ?? 0}`
+    + (r.reprompts ? ` · reprompt ${r.reprompts}` : '');
+  const active = SID && !r.done;
+  if (r.say) {
+    $('#said').textContent = r.say;
+    // Speak, THEN open the mic — exactly when the question finishes, no button held.
+    // Listening while we are still talking makes the recogniser hear our own voice.
+    speak(r.say, () => { if (active && awaitingAnswer(r.state)) listen(); });
+  }
+  for (const id of ['yes','no','mumble','cancel']) $('#'+id).disabled = !active;
+  $('#mic').disabled = !active;
+  if (r.escalation) {
+    banner(r.escalation.delivered
+      ? "Escalation handed to offpath-911 (SIMULATED endpoint)."
+      : "Escalation confirmed but NOT delivered: " + (r.escalation.why || 'unknown'));
+  }
+  if (r.done && r.state === 'escalate') $('#cancel').disabled = false;   // abort must remain
+  refreshLog();
+}
+
+async function post(path, body){
+  const res = await fetch(API + path, {method:'POST', headers:{'Content-Type':'application/json'},
+                                       body: JSON.stringify(body||{})});
+  return res.json();
+}
+
+async function refreshLog(){
+  if (!SID) return;
+  const r = await (await fetch(`${API}/session/${SID}`)).json();
+  $('#log tbody').innerHTML = '<tr><th>from</th><th>heard</th><th>conf</th><th>intent</th><th>to</th></tr>'
+    + (r.transcript||[]).map(t =>
+        `<tr><td>${t.from}</td><td>${t.heard||'—'}</td><td>${t.confidence.toFixed(2)}</td>
+         <td>${t.intent}</td><td>${t.to}</td></tr>`).join('');
+}
+
+async function begin(trigger){
+  const contact = ($('#contact').value || '').trim();
+  const r = await post('/session', {trigger, contact});
+  $('#heard').textContent = '';
+  banner('');
+  render(r);
+}
+
+async function hear(transcript, confidence){
+  $('#heard').innerHTML = `heard: <b>${transcript}</b> (${confidence.toFixed(2)})`;
+  render(await post(`/session/${SID}/hear`, {transcript, confidence,
+    evidence: {note: "demo — no real location attached"}}));
+}
+
+$('#start').onclick = () => begin('offpath');
+$('#keyword').onclick = () => begin('keyword');
+$('#yes').onclick = () => hear('yes', 0.95);
+$('#no').onclick = () => hear('no', 0.95);
+$('#mumble').onclick = () => hear('uhh mmm', 0.9);
+$('#cancel').onclick = async () => render(await post(`/session/${SID}/cancel`));
+
+// --- microphone: opens itself the moment the question finishes -------------------
+// Hold-to-talk was the wrong interaction here. Someone who has just been asked if they
+// are okay should be able to answer, not find and hold a button — and on desktop the
+// mousedown/mouseup pair fired faster than the recogniser could start, so it captured
+// nothing at all. This is the Apple shape: it asks, then it is already listening.
+function awaitingAnswer(state){
+  return state === 'asked_wellbeing' || state === 'asked_escalate';
+}
+
+function listen(){
+  if (!rec || listening) return;
+  listening = true;
+  $('#mic').classList.add('live');
+  $('#mic').textContent = 'listening — just answer';
+  try { rec.start(); } catch { listening = false; }
+}
+
+if (SR && secure) {
+  rec = new SR();
+  rec.lang = 'en-US'; rec.interimResults = false; rec.maxAlternatives = 1;
+  rec.continuous = false;
+  rec.onresult = e => {
+    const res = e.results[e.results.length - 1][0];
+    // The recogniser's own confidence is passed through untouched — the state machine
+    // treats anything under its threshold as not heard rather than as a best guess.
+    hear(res.transcript.trim(), typeof res.confidence === 'number' ? res.confidence : 0.9);
+  };
+  rec.onerror = ev => {
+    listening = false;
+    if (ev.error === 'no-speech') { $('#mic').textContent = 'didn\'t hear you — tap to retry'; }
+    else if (ev.error === 'not-allowed') { banner('Microphone permission denied.'); }
+    else { banner('speech error: ' + ev.error); }
+  };
+  rec.onend = () => { listening = false; $('#mic').classList.remove('live');
+                      $('#mic').textContent = 'tap to answer'; };
+  // Tap is now a retry, not a hold.
+  $('#mic').addEventListener('click', () => { if (SID) listen(); });
+} else {
+  $('#mic').textContent = 'mic unavailable — use the buttons';
+}
+</script>

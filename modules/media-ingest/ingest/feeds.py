@@ -148,6 +148,15 @@ def _emit(camera_id: str, node: dict, ts: float, path: Path | None,
     return rec
 
 
+def ingest_external_frame(node: dict, blob: bytes, ts: float,
+                          source: str) -> dict:
+    """Entry point for frames obtained OUTSIDE the fetch paths (e.g. the live
+    streamer) — stores + emits so FrameRecords/activity/copresence see them."""
+    cid = node["camera_id"]
+    path = _store(cid, blob, ts)
+    return _emit(cid, node, ts, path, source, stale=False, blob=blob)
+
+
 def latest_record(camera_id: str) -> dict | None:
     rec = _LATEST.get(camera_id)
     if rec:

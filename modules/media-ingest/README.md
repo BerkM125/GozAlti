@@ -123,20 +123,81 @@ All responses JSON unless noted. Every enrichment field carries its
 | `POST /api/priority {"camera_ids": [...]}` | mark hot-lane cameras (en-route) — processed first every pass |
 | `POST /api/sweep/start` / `/api/sweep/stop`, `GET /api/sweep/status` | BFS traversal loop over all cameras, 10 s rest between passes; activity flag drives the hot/slow lanes; **runs with no VLM backend too** (fetch-only passes keep activity flags fresh) |
 
-### 2.5 Local OpenCV CNN — cars + people with world positions (no VLM, no internet)
+### 2.44 CONSOLIDATED PATHFINDING (`modules/pathfinding`, served here)
 
-**Fully local object detection**: YOLOv4-tiny through `cv2.dnn` in a pool of
-worker **processes** (`CV_WORKERS`, GIL-free parallel inference, net loaded
-once per worker and kept warm), then a mathematics layer that converts pixel
-boxes into lat/lon estimates using the camera's resolved bearing, an assumed
-FOV, and known-height pinhole ranging. One-time install:
-**`python -m ingest.setup_cv`** (pip deps + ~24 MB model download + smoke
-test) — after that inference needs zero network.
+| Endpoint | What it does |
+|---|---|
+| `GET /api/route?olat=&olon=&dlat=&dlon=&kind=safer&live=true` | **THE one-and-done router** (god SPEC §5.1 spike 4): deterministic A* with every static layer IN the edge weights — REAL SDOT collisions (9.7k records), camera coverage, OSM structure, osint hook — plus cached OpenCV shipped with the path. ~50 ms. Returns a versioned PathObject with `live.incorporated:false`; `live=true` (default) auto-starts the live session |
+| `GET /api/route/live/{path_id}?since=N` | Poll the PathLiveSession: fresh OpenCV + VLM flags/people-counts enter the A* as they arrive (night rule: ≥3 people 0.0 / no motion 0.5 / 1–2 people 1.0, day ×0.15) and the path **auto-replaces** with `version`++ |
+| `DELETE /api/route/live/{path_id}` | stop a session (they also expire 180 s after the last poll) |
+| `GET /api/path/summaries/{path_id}` | **Per-segment LLM summaries** (Ollama ON the Spark, default `qwen2.5:3b-instruct`, ~1 s/segment warm): one-line phrasings of each segment's deterministic factors + live camera reports. Live sessions queue them automatically at start and re-queue whichever segments' evidence moves (version bumps AND occupancy-only changes); serves `{available, why, model, pending, summaries:{seg: {text, evidence_rev, revising}}}` — old text serves with `revising:true` until the refreshed one lands. LLM phrasing of given evidence only, labeled as such — never a verdict, never canned text when the backend is down |
+| `POST /api/path/summaries` | queue UI-supplied evidence payloads (`{path_id, segments:[{seg_key, ...}]}`) — coalesces on an evidence hash, unchanged segments are never re-generated |
+
+Env: `OLLAMA_URL` (default `http://127.0.0.1:11434` — correct on the Spark;
+off-box dev: `ssh -N -L 11435:127.0.0.1:11434 spark` then
+`OLLAMA_URL=http://127.0.0.1:11435`), `OLLAMA_MODEL` to override the model.
+
+Full contract + cost table: `modules/pathfinding/SPEC.md`.
+
+### 2.45 Evidence-enriched pathfinding (LEGACY — superseded by 2.44)
+
+| Endpoint | What it does |
+|---|---|
+| `GET /api/path?olat=&olon=&dlat=&dlon=&kind=safer` | **Two points → walkable route with live evidence per segment.** The route itself is harness's risk-weighted A* (risk native to the search); this module overlays each segment with camera coverage + pixel-activity, co-presence recency, lighting (`lit` tag + NOAA sun), and businesses open right now, combining them into `live_risk` via the **documented formula** in `ingest/pathrisk.py` (`risk_basis` rides along in the response — a mechanical evidence combination for the demo, NOT a synthesis verdict; every input is in `evidence`). Also returns `cameras_en_route_detail` (with live activity state) and `refuges_en_route` (open businesses within 60 m of the walk — the "exit routes"). Harness's placeholder jitter fields (`live_penalty`/`confidence`/`stale`) are dropped, never forwarded. 422 with a machine-readable code on RouteError |
+
+### 2.5 Local CV — cars + people with world positions (no VLM, no internet)
+
+**Inference is reconciled with the vlm module — there is ONE detection
+layer in this repo.** The **source of truth is Adi's
+`modules/vlm/lab/detlib.py`** (torchvision Faster/Mask/Keypoint R-CNN,
+COCO weights, ~60–77 ms/frame on the Spark's GPU, benchmarked in his
+docstring). media-ingest imports it **read-only** and adapts its raw output
+— same weights, same transforms, same thresholds, same class semantics
+(`VEHICLE_CLASSES`), so a "person at 0.95" means the identical thing on
+both sides. Backend policy (`CV_BACKEND`):
+
+- `auto` (default): **detlib wherever CUDA exists** (the Spark — always his
+  stack there); CPU-only dev boxes fall back to YOLOv4-tiny/`cv2.dnn` purely
+  for latency (detlib on CPU ≈ 7 s/frame vs yolo ≈ 0.2 s) — results are
+  labeled `cpu-latency fallback` so provenance is never ambiguous.
+- `detlib` / `yolo`: force either. `CV_ARCH` picks his architecture
+  (fasterrcnn default; keypointrcnn = people-only + facing), `CV_MIN_SIZE`
+  is his measured resolution knob.
+
+**The latency question is purely an orchestration/rendering concern, not a
+second inference layer**: how frames reach the detector and how results
+reach the map is this module's machinery (streaming, prefetch, caching
+below); *what constitutes a detection* is detlib's alone.
+
+**Laptop fast-path frame prep**: before a frame is handed to the yolo
+worker pool, its long side is bounded to `CV_PREP_MAX_DIM` (640) px and it
+is re-encoded as JPEG (`CV_PREP_JPEG_Q`, 80) — streamed frames otherwise
+cross the process boundary as ~6 MB raw ndarrays; prepped they are ~80 KB.
+Uniform scale keeps the aspect ratio, so the ratio-based bearing/range math
+in `ingest/locate.py` is unchanged. JPEGs already ≤ `CV_PREP_MAX_JPEG_KB`
+(220) skip the round trip; `CV_PREP_MAX_DIM=0` disables prep entirely.
+detlib (the HQ source-of-truth pass) always receives the full frame.
+
+The mathematics layer then converts pixel boxes into lat/lon estimates
+using the camera's resolved bearing, an assumed FOV, and known-height
+pinhole ranging. One-time install: **`python -m ingest.setup_cv`** (pip
+deps incl. torch — with an automatic Windows MAX_PATH workaround — plus
+the ~24 MB fallback model + smoke test).
+
+**Live streaming frame pull**: for hot cameras (recently requested), a
+`CamStreamer` (`ingest/stream.py`) holds the HLS stream open through
+ffmpeg's demuxer and decodes frames **as chunks arrive** — the live edge,
+not completed-segment polling. Upstream cost = exactly one ordinary viewer
+per streamed camera, hard-capped: ≤ `STREAM_MAX` (3) concurrent streamers,
+each auto-stops `STREAM_IDLE_TTL_S` (30 s) after its last request, stalled
+streams reopen once then fall back to segment polling. Streamed frames are
+periodically fed back through the frame store so activity flags /
+FrameRecords / the snapshot pane stay consistent.
 
 | Endpoint | What it does |
 |---|---|
 | `GET /api/cv/status` | models ready? worker count, classes (person/bicycle/motorbike/car/bus/truck) |
-| `GET /api/cv/camera/{cid}?force=` | **single-camera pipeline**: rate-gated freshest frame → CNN worker → math layer. Calling it marks the camera **hot**: a background prefetcher then re-runs fetch+inference the moment the frame gate opens (and stops 30 s after the last request), so polls answer from warm cache in ~10–30 ms. Measured under a 1 s poll loop: upstream segment pulls stay exactly at the 6 s gate. Cached responses carry `cached: true`; concurrent calls dedupe onto one in-flight analysis |
+| `GET /api/cv/camera/{cid}?force=&backend=` | **single-camera pipeline**: rate-gated freshest frame → CNN worker → math layer. Calling it marks the camera **hot**: a background prefetcher then re-runs fetch+inference the moment the frame gate opens (and stops 30 s after the last request), so polls answer from warm cache in ~10–30 ms. Measured under a 1 s poll loop: upstream segment pulls stay exactly at the 6 s gate. Cached responses carry `cached: true`; concurrent calls dedupe onto one in-flight analysis. `backend=detlib&force=true` runs an on-demand **HQ pass through Adi's stack** regardless of the auto policy (the UI's "HQ PASS" button) |
 | `GET /api/cv/point?lat=&lon=&radius_m=150` | **parallel multi-camera pipeline**: point → cameras that see it (≤`CV_MAX_POINT_CAMERAS`) → frames fetched in parallel (≤4 upstream, gates hold) → simultaneous forward passes in the worker pool → merged world-positioned detections. Measured: 3 cameras end-to-end in <1 s wall-clock |
 
 Detection shape: `{label, conf, box:[x1,y1,x2,y2] normalized, est:{lat, lon,
@@ -245,9 +306,10 @@ endpoints, retention).
 `ingest/graph.py` camera graph + spatial/street queries · `feeds.py` rate-gated
 snapshots + HLS segment frames, FrameRecord emission · `activity.py` binary
 pixel-activity flag · `detect.py` BFS detection sweep + hot lane ·
-`cvdetect.py` local CNN layer (process pool, per-frame result cache) ·
-`locate.py` mathematics layer (pixel box → lat/lon) · `setup_cv.py` one-command
-CV installer/orchestrator · `orientation.py` + `solar.py` bearing stack + sun ·
+`cvdetect.py` local CV layer (detlib backend + yolo fallback, per-frame
+result cache, hot-camera prefetch) · `stream.py` live HLS streamers (frames
+as chunks arrive) · `locate.py` mathematics layer (pixel box → lat/lon) ·
+`setup_cv.py` one-command CV installer/orchestrator · `orientation.py` + `solar.py` bearing stack + sun ·
 `refuge.py` + `hours.py` open-business layer + OSM hours evaluator ·
 `statics.py` street-context builder · `observations.py` + `vlm_forward.py`
 breadcrumbs + `:8040/read` push · `vlm_client.py` OpenAI-compatible VLM

@@ -1,10 +1,15 @@
 #!/usr/bin/env python3
 """vlm module service — SPEC §6.8, port 8040.
 
-  POST /read     FrameRecord (§6.1)  -> Observation (§6.2)
+  POST /read     FrameRecord (§6.1) -> Observation (§6.2). Also accepts media-ingest's
+                 hot-lane envelope {frame_record, image_b64, prior_observations}.
   POST /read_batch  {"frames":[FrameRecord,...]} -> {"observations":[Observation,...]}
   GET  /health   liveness + what is loaded
   GET  /flags    the closed flag enum this module emits
+  GET  /cache    cache stats;  DELETE /cache clears it
+  GET  /         a zero-dependency demo page that exercises all of the above
+  GET  /frames   sample frames available to the demo
+  GET  /frame?path=...  serve a frame (restricted to under GOZALTI_ROOT)
 
 Runs INSIDE the vLLM container so it has torch/torchvision/cv2, with --network host so
 it can reach ollama on :11434:
@@ -24,13 +29,13 @@ Two things this enforces that the scripts did not:
   - a frame marked stale by media-ingest is never sent to a model. It returns
     camera_dead with no detections and no invented caption.
 """
-import json, os, re, sys, time, threading, base64, urllib.request
+import json, os, re, sys, tempfile, time, threading, base64, urllib.request
 from collections import OrderedDict
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import urlparse
+from urllib.parse import urlparse, parse_qs
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE / "lab"))
@@ -105,15 +110,57 @@ def resolve(path):
     return p if p.is_absolute() else (REPO / p)
 
 
+def unwrap(payload):
+    """Accept either a bare FrameRecord (§6.1) or media-ingest's hot-lane envelope.
+
+    media-ingest pushes {"frame_record": <§6.1 untouched>, "image_b64": ...,
+    "prior_observations": [last <=3 Observations]}. `prior_observations` is a sibling
+    key, deliberately NOT a §6.1 field, so the contract stays unedited — confirmed as
+    tolerated here (media-ingest/SPEC.md asked the vlm owner to confirm).
+
+    Sending the bytes inline is the better shape and we prefer it: media-ingest owns
+    rate limiting and fetching, and this service runs containerised where its host paths
+    may not resolve. If image_b64 is present we never touch the filesystem.
+    """
+    if isinstance(payload.get("frame_record"), dict):
+        rec = dict(payload["frame_record"])
+        return rec, payload.get("image_b64"), payload.get("prior_observations") or []
+    return payload, payload.get("image_b64"), payload.get("prior_observations") or []
+
+
+def materialise(rec, image_b64):
+    """Bytes on the wire beat a path we might not be able to see. Returns (path, tmp?)."""
+    if image_b64:
+        raw = base64.b64decode(image_b64)
+        tmp = Path(tempfile.gettempdir()) / f"vlm_{abs(hash(image_b64[:512]))}.jpg"
+        tmp.write_bytes(raw)
+        return tmp, True
+    path = resolve(rec.get("path", ""))
+    if not path.exists():
+        raise FileNotFoundError(f"frame not found: {path} (send image_b64 to avoid "
+                                f"depending on paths this service can resolve)")
+    return path, False
+
+
 # ---------- cache ------------------------------------------------------------------
 
 def cache_key(rec, path):
-    """Identity of the *frame*, not the camera. A new frame is a new key."""
+    """Identity of the *frame*: the bytes on disk, not the metadata describing them.
+
+    Deliberately excludes captured_at. Two FrameRecords pointing at the same file with
+    the same mtime describe the same pixels no matter what timestamp the caller
+    attached, and reading those pixels twice cannot produce a different answer. Keying
+    on captured_at made every re-request a miss whenever a caller stamped it with now(),
+    which is exactly what the demo page did — 2.5 s of GPU for a frame we had already
+    read. camera_id stays in the key so two cameras that somehow share a path never
+    alias.
+    """
     try:
-        mtime = int(path.stat().st_mtime)
+        st = path.stat()
+        ident = (int(st.st_mtime), st.st_size)
     except OSError:
-        mtime = 0
-    return (rec.get("camera_id"), str(path), mtime, rec.get("captured_at"))
+        ident = (0, 0)
+    return (rec.get("camera_id"), str(path), *ident)
 
 
 def cache_get(key):
@@ -139,6 +186,55 @@ def cache_put(key, obs):
         _cache.move_to_end(key)
         while len(_cache) > CACHE_MAX:
             _cache.popitem(last=False)
+
+
+# ---------- illumination -----------------------------------------------------------
+
+# CPTED's seven factors put lighting among the strongest positive contributors to how
+# safe a street feels (see ../SAFETY-SIGNALS.md). We measure it rather than ask the VLM:
+# safe-walk found the VLM calling a 2 a.m. street "daylight", and a histogram cannot
+# hallucinate. ~1 ms on top of a 66 ms detector pass.
+#
+# CALIBRATION, MEASURED: across 35 frames spanning day and 21:47-local night, mean luma
+# ran 82.6 to 150.2 and EVERY frame bucketed "lit". SDOT cameras auto-expose, so a dark
+# street does not produce a dark image — the sensor compensates with gain. Absolute luma
+# is therefore a weak proxy for "can a walker see here", and these thresholds are
+# provisional: they have never yet separated a real frame into dark or dim.
+#
+# What is trustworthy is the raw triple, which ships in _ext regardless of the bucket:
+#   mean_luma      overall exposure after the camera's own gain
+#   dark_fraction  share of frame below luma 30 — survives auto-exposure better, because
+#                  gain cannot recover detail from a genuinely black region
+#   spread         separates an evenly lit street from one streetlight against black
+#
+# The durable fix is the same one used for population and traffic: rank a camera against
+# the rest of the sweep rather than against an absolute number (see detlib.rank and
+# ../SAFETY-SIGNALS.md §3). That needs a sweep, so it belongs in synthesis, not here.
+# Until then poor_lighting fires rarely by design — a flag that never fires is better
+# than one tuned until it does.
+LUMA_DARK = 45.0        # provisional, unvalidated on this fleet
+LUMA_DIM = 80.0         # provisional, unvalidated on this fleet
+
+
+def illumination(img_path):
+    """Mean luma, the fraction of the frame that is near-black, and a coarse bucket."""
+    try:
+        import cv2, numpy as np
+        im = cv2.imread(str(img_path))
+        if im is None:
+            return None
+        y = cv2.cvtColor(im, cv2.COLOR_BGR2GRAY)
+        mean = float(y.mean())
+        # how much of the frame a walker simply cannot see into
+        dark_frac = float((y < 30).sum()) / y.size
+        # spread separates "evenly lit" from "one bright streetlight, rest black"
+        spread = float(y.std())
+        bucket = ("dark" if mean < LUMA_DARK else
+                  "dim" if mean < LUMA_DIM else "lit")
+        return {"mean_luma": round(mean, 1), "dark_fraction": round(dark_frac, 3),
+                "spread": round(spread, 1), "bucket": bucket}
+    except Exception:
+        return None
 
 
 # ---------- detector ---------------------------------------------------------------
@@ -205,6 +301,26 @@ def as_list(v):
     return []
 
 
+def priors_block(priors):
+    """What this camera showed recently, so the VLM can notice CHANGE rather than
+    re-describe a static scene. Capped and phrased as history, never as current fact."""
+    if not priors:
+        return ""
+    lines = []
+    for p in list(priors)[-3:]:
+        if not isinstance(p, dict):
+            continue
+        when = p.get("frame_ts") or p.get("read_at") or "earlier"
+        cap = (p.get("caption") or "").strip()[:140]
+        fl = ", ".join(p.get("flags") or []) or "no flags"
+        lines.append(f"- {when}: {fl}. {cap}")
+    if not lines:
+        return ""
+    return ("Earlier reads of THIS SAME camera, oldest first. Use them only to notice what "
+            "has changed; do not repeat them as if they were the current frame:\n"
+            + "\n".join(lines) + "\n\n")
+
+
 def context_block(people, vehicles):
     v = {k: n for k, n in vehicles.items() if n}
     return (f"A detector has already counted this frame: {len(people)} people outside "
@@ -242,8 +358,8 @@ def validate(obs):
     return bad
 
 
-def observe(rec):
-    """FrameRecord -> Observation."""
+def observe(rec, image_b64=None, priors=None):
+    """FrameRecord -> Observation. Optionally with inline bytes and temporal breadcrumbs."""
     cam = rec.get("camera_id") or "unknown"
     frame_ts = rec.get("captured_at") or now_iso()
     base = {"camera_id": cam, "frame_ts": frame_ts, "read_at": now_iso(),
@@ -258,9 +374,7 @@ def observe(rec):
         base["model"] = "none"
         return base
 
-    path = resolve(rec.get("path", ""))
-    if not path.exists():
-        raise FileNotFoundError(f"frame not found: {path}")
+    path, is_tmp = materialise(rec, image_b64)
 
     key = cache_key(rec, path)
     cached = cache_get(key)
@@ -275,6 +389,8 @@ def observe(rec):
     _stats["cache_misses"] += 1
     t_start = time.time()
 
+    lum = illumination(path)          # ~1 ms, no GPU, cannot hallucinate
+
     with _lock:                       # one GPU, one detector at a time
         people, vehicles, det_ms = run_detector(path)
 
@@ -284,8 +400,13 @@ def observe(rec):
     flags = []
     if not people:
         flags.append("no_people")
+    # poor_lighting comes from the measurement, not from the model's opinion. It fires
+    # when the frame is genuinely dark OR when most of it is unreadable even though a
+    # single light source pulls the mean up.
+    if lum and (lum["bucket"] == "dark" or lum["dark_fraction"] > 0.55):
+        flags.append("poor_lighting")
 
-    ctx = context_block(people, vehicles)
+    ctx = context_block(people, vehicles) + priors_block(priors)
     ins, tries = None, 0
     for attempt in (1, 2):
         try:
@@ -312,15 +433,14 @@ def observe(rec):
         w = WALKWAY_FLAG.get(ins.get("walkway_status"))
         if w:
             flags.append(w)
-        if ins.get("lighting") == "dark_unlit":
-            flags.append("poor_lighting")
         base["flags"] = [f for f in flags if f in FLAGSET]
         parts = [ins.get("activity") or "", ins.get("walkway_reason") or "",
                  ins.get("setting_notes") or ""]
         base["caption"] = " ".join(p.strip() for p in parts if p.strip())[:400]
 
     # extensions beyond §6.2 — additive, consumers may ignore
-    base["_ext"] = {"vehicles": vehicles, "vehicle_count": sum(vehicles.values()),
+    base["_ext"] = {"illumination": lum,
+                    "vehicles": vehicles, "vehicle_count": sum(vehicles.values()),
                     "detector_ms": det_ms, "vlm_tries": tries,
                     "scene": (ins or {}).get("scene"),
                     "walkway_status": (ins or {}).get("walkway_status"),
@@ -330,11 +450,12 @@ def observe(rec):
     return base
 
 
-def read_one(rec):
-    """One FrameRecord -> Observation, or {camera_id, error}. Never raises: a batch of 40
-    must not die because one camera's frame went missing mid-sweep."""
+def read_one(payload):
+    """One FrameRecord (bare or enveloped) -> Observation, or {camera_id, error}. Never
+    raises: a batch of 40 must not die because one camera's frame went missing."""
+    rec, img_b64, priors = unwrap(payload if isinstance(payload, dict) else {})
     try:
-        obs = observe(rec)
+        obs = observe(rec, img_b64, priors)
         problems = validate(obs)
         if problems:
             return {"camera_id": rec.get("camera_id"), "error": "schema",
@@ -375,6 +496,36 @@ class H(BaseHTTPRequestHandler):
                 "cache_ttl_s": CACHE_TTL, "cache_entries": len(_cache),
                 "uptime_s": round(time.time() - _stats["started"]),
                 **{k: v for k, v in _stats.items() if k != "started"}})
+        if p in ("/", "/demo", "/index.html"):
+            html = (HERE / "demo.html").read_bytes()
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Content-Length", str(len(html)))
+            self.end_headers()
+            self.wfile.write(html)
+            return
+        if p == "/frames":
+            # what the demo can read: the committed sample set
+            out = []
+            for f in sorted((HERE / "lab" / "samples").glob("*.jpg")):
+                parts = f.stem.split("__")
+                out.append({"name": f.name, "path": str(f),
+                            "camera_id": parts[1] if len(parts) >= 3 else f.stem})
+            return self._json(200, {"frames": out})
+        if p == "/frame":
+            q = parse_qs(urlparse(self.path).query).get("path", [""])[0]
+            target = Path(q).resolve()
+            # never serve outside the repo, however the caller spells the path
+            if REPO.resolve() not in target.parents or not target.is_file():
+                return self._json(404, {"error": "not found"})
+            data = target.read_bytes()
+            self.send_response(200)
+            self.send_header("Content-Type", "image/jpeg")
+            self.send_header("Content-Length", str(len(data)))
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            self.wfile.write(data)
+            return
         if p == "/flags":
             return self._json(200, {"flags": FLAGS})
         if p == "/cache":
@@ -404,7 +555,8 @@ class H(BaseHTTPRequestHandler):
 
         try:
             if p == "/read":
-                obs = observe(payload)
+                rec, img_b64, priors = unwrap(payload)
+                obs = observe(rec, img_b64, priors)
                 problems = validate(obs)
                 if problems:
                     return self._json(500, {"error": "observation failed schema",

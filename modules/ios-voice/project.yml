@@ -1,0 +1,28 @@
+name: GozAltiVoice
+options:
+  bundleIdPrefix: com.gozalti
+  deploymentTarget:
+    iOS: "17.0"
+  createIntermediateGroups: true
+targets:
+  GozAltiVoice:
+    type: application
+    platform: iOS
+    sources: [Sources]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.gozalti.voice
+        MARKETING_VERSION: "0.1"
+        CURRENT_PROJECT_VERSION: "1"
+        GENERATE_INFOPLIST_FILE: YES
+        # Permission strings. iOS kills the app on first use if these are missing.
+        INFOPLIST_KEY_NSMicrophoneUsageDescription: "Needed to hear your spoken answer when you leave your route."
+        INFOPLIST_KEY_NSSpeechRecognitionUsageDescription: "Speech is recognised on-device to understand yes or no."
+        INFOPLIST_KEY_UILaunchScreen_Generation: YES
+        INFOPLIST_KEY_UISupportedInterfaceOrientations: UIInterfaceOrientationPortrait
+        # Talking to the state machine over plain HTTP on the LAN during the demo.
+        # Scoped to local networking only, not a blanket ATS disable.
+        INFOPLIST_KEY_NSLocalNetworkUsageDescription: "Connects to the GözAltı service on your laptop."
+      configs:
+        Debug:
+          CODE_SIGN_STYLE: Automatic

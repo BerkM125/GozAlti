@@ -1,0 +1,36 @@
+CAMERA CMR-0261
+CLIP: 60 s, sampled at 4.0 fps (240 frames analysed).
+
+MEASURED OVER THE WHOLE CLIP (detector and tracker, not estimates):
+- 12 unique people tracked through the clip.
+- People visible per frame: peak 4 at 0:28, mean 0.83, minimum 0.
+- Vehicles per frame: peak 21, mean 14.33.
+- Time on screen per person: median 4.5 s, longest 15.75 s.
+- Movement: 6 slow_moving, 5 standing, 1 walking.
+- Directions of travel across the frame: 6 stationary, 5 up-frame, 1 up-left.
+
+CHUNK CAPTIONS, IN TIME ORDER:
+[0:00-0:10] peak 3 people, 19 vehicles. A few cars move through the intersection as traffic lights cycle, with no pedestrians visible on the sidewalks.
+    change across the chunk: The traffic lights change from green to red, and a few cars proceed through the intersection.
+    scene intersection; walking path clear
+    setting: Urban intersection with multiple lanes, no visible pedestrian activity or obstacles on sidewalks.
+[0:10-0:20] peak 3 people, 21 vehicles. A few cars move through the intersection while traffic lights cycle red to green, and a single pedestrian remains near the crosswalk.
+    change across the chunk: The traffic light for the crosswalk turns green, allowing a few cars to proceed through the intersection.
+    scene intersection; walking path clear
+    setting: A nighttime urban intersection with multiple lanes, traffic lights, and buildings lining the street.
+[0:20-0:30] peak 4 people, 19 vehicles. A few cars move through the intersection as traffic lights cycle, with no pedestrians visible on the sidewalks.
+    change across the chunk: A white car enters the intersection from the left in the bottom-left tile, while a red car moves right in the bottom-right tile.
+    scene intersection; walking path clear
+    setting: Nighttime urban intersection with multiple lanes and traffic signals; sidewalks are visible and unobstructed.
+[0:30-0:40] peak 3 people, 17 vehicles. A white car waits at a red light on the left side of the intersection, while a few vehicles move through the intersection; the traffic light cycles from red to green for the crosswalk.
+    change across the chunk: The traffic light for the crosswalk changes from red to green, allowing vehicles to proceed through the intersection.
+    scene intersection; walking path clear
+    setting: A nighttime urban intersection with multiple lanes, traffic lights, and buildings lining the street.
+[0:40-0:50] peak 2 people, 19 vehicles. A single car moves through the intersection while traffic lights cycle from red to green, and a white SUV remains stationary near the crosswalk.
+    change across the chunk: The traffic light for the crosswalk turns green, allowing a vehicle to proceed through the intersection.
+    scene intersection; walking path clear
+    setting: A nighttime urban intersection with multiple lanes, traffic lights, and buildings lining the street.
+[0:50-1:00] peak 1 people, 17 vehicles. The traffic light cycles from red to green, allowing vehicles to move through the intersection while pedestrians remain on the sidewalk.
+    change across the chunk: The traffic light changed from red to green, and vehicles began moving through the intersection.
+    scene intersection; walking path clear
+    setting: A nighttime urban intersection with multiple lanes and a sidewalk on the left side.

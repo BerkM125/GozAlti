@@ -22,8 +22,13 @@ DATA = ROOT / "data"
 RAW = DATA / "osm_raw.json"
 OUT = DATA / "walk_graph.json"
 
-# west, south, east, north — same as map-frontend's src/config.ts BBOX
-BBOX = (-122.355, 47.595, -122.315, 47.625)
+# west, south, east, north — keep map-frontend's src/config.ts BBOX in sync
+# Expanded 16 Aug (Berkan, pathfinding sprint — pending Ioli sign-off): union
+# rectangle covering the original downtown box PLUS U-District/UW/U-Village
+# and the Eastlake/Montlake corridors between, so downtown<->UW routes work.
+# One contiguous rectangle is required: the build keeps only the largest
+# connected component. Downtown-only was (-122.355, 47.595, -122.315, 47.625).
+BBOX = (-122.355, 47.595, -122.285, 47.672)
 
 OVERPASS = "https://overpass-api.de/api/interpreter"
 

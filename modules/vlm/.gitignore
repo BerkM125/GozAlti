@@ -12,3 +12,7 @@ lab/clips/
 lab/video_out/
 lab/viewer/data/
 lab/assist_out/
+# evidence/ is the exception: unreproducible artifacts (live-clip digests, bench
+# timings). 36 KB of text, kept so the docs' numbers can be checked. See its README.
+!lab/evidence/
+!lab/evidence/**

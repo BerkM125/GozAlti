@@ -136,6 +136,47 @@ class TestDeadCamera(unittest.TestCase):
             service.observe({"camera_id": "X", "path": "/nope/missing.jpg", "stale": False})
 
 
+try:
+    import cv2 as _cv2
+    HAVE_CV2 = True
+except Exception:
+    HAVE_CV2 = False
+
+
+@unittest.skipUnless(HAVE_CV2, "cv2 lives in the vLLM container, not in system python; "
+                               "the live tier covers illumination end to end")
+class TestIllumination(unittest.TestCase):
+    """Lighting is measured, not asked of the model. safe-walk caught the VLM calling a
+    2 a.m. street 'daylight'; a histogram cannot do that."""
+
+    def frames(self, pat):
+        return sorted((HERE / "lab" / "samples").glob(pat))
+
+    def test_night_frames_are_darker_than_day_frames(self):
+        night = [service.illumination(f) for f in self.frames("night__*.jpg")]
+        day = [service.illumination(f) for f in self.frames("crowd__*.jpg")]
+        night = [x for x in night if x]; day = [x for x in day if x]
+        if not night or not day:
+            self.skipTest("need both night and daylight samples")
+        nm = sum(x["mean_luma"] for x in night) / len(night)
+        dm = sum(x["mean_luma"] for x in day) / len(day)
+        self.assertLess(nm, dm, f"night mean luma {nm:.1f} should be below day {dm:.1f}")
+
+    def test_shape_and_ranges(self):
+        f = self.frames("*.jpg")[0]
+        lum = service.illumination(f)
+        self.assertIsNotNone(lum)
+        self.assertIn(lum["bucket"], ("dark", "dim", "lit"))
+        self.assertGreaterEqual(lum["mean_luma"], 0.0)
+        self.assertLessEqual(lum["mean_luma"], 255.0)
+        self.assertGreaterEqual(lum["dark_fraction"], 0.0)
+        self.assertLessEqual(lum["dark_fraction"], 1.0)
+
+    def test_missing_file_returns_none_not_raise(self):
+        """Never raise out of the illumination path: a bad frame must not sink a read."""
+        self.assertIsNone(service.illumination(Path("/nope/missing.jpg")))
+
+
 class TestLive(unittest.TestCase):
     """Only run with --live: requires the service up and a real frame."""
     BASE = os.environ.get("VLM_URL", "http://127.0.0.1:8040")
@@ -221,11 +262,23 @@ class TestLive(unittest.TestCase):
             return [{"camera_id": f"{tag}{i}", "captured_at": "2026-08-16T05:00:00Z",
                      "kind": "frame", "path": str(f), "source": "sdot-snapshot",
                      "stale": False} for i, f in enumerate(frames)]
+
+        def clear():
+            # Both halves must measure COMPUTE. On a warm cache a batch returns in ~0 ms,
+            # which made this test order-dependent and divided by zero on a second run.
+            urllib.request.urlopen(
+                urllib.request.Request(f"{self.BASE}/cache", method="DELETE"), timeout=10).read()
+
+        clear()
         t0 = time.time()
         for r in recs("S"):
             self.post("/read", r, timeout=300)
         serial_per_frame = (time.time() - t0) / len(frames)
+        clear()
         out = self.post("/read_batch", {"frames": recs("B")}, timeout=600)
+        self.assertGreater(out["per_frame_s"], 0.0,
+                           "batch returned instantly — cache was not cleared, "
+                           "so this measured nothing")
         self.assertEqual(out["concurrency"], service.CONCURRENCY)
         speedup = serial_per_frame / out["per_frame_s"]
         print(f"\n    serial {serial_per_frame:.2f}s/frame vs batch "
@@ -233,6 +286,46 @@ class TestLive(unittest.TestCase):
               f"({speedup:.2f}x)")
         self.assertLess(out["per_frame_s"], serial_per_frame,
                         "batch should be faster per frame than one-at-a-time")
+
+    def test_illumination_is_in_the_response(self):
+        f = sorted((HERE / "lab" / "samples").glob("night__*.jpg"))[0]
+        obs = self.post("/read", {"camera_id": "NIGHT-TEST",
+                                  "captured_at": "2026-08-16T07:00:00Z", "kind": "frame",
+                                  "path": str(f), "source": "sdot-snapshot", "stale": False},
+                        timeout=300)
+        lum = obs.get("_ext", {}).get("illumination")
+        self.assertIsNotNone(lum, "illumination missing from the observation")
+        print(f"\n    {f.name[:34]}: luma {lum['mean_luma']} bucket {lum['bucket']} "
+              f"dark_frac {lum['dark_fraction']} -> flags {obs['flags']}")
+
+    def test_accepts_media_ingest_envelope(self):
+        """media-ingest pushes {frame_record, image_b64, prior_observations}. That shape
+        must work, and image_b64 must remove the dependency on paths this containerised
+        service may not be able to resolve."""
+        import base64
+        f = sorted((HERE / "lab" / "samples").glob("*.jpg"))[0]
+        obs = self.post("/read", {
+            "frame_record": {"camera_id": "ENVELOPE-TEST",
+                             "captured_at": "2026-08-16T08:00:00Z", "kind": "frame",
+                             "path": "/a/path/this/service/cannot/see.jpg",
+                             "source": "sdot-snapshot", "stale": False},
+            "image_b64": base64.b64encode(f.read_bytes()).decode(),
+            "prior_observations": [
+                {"frame_ts": "2026-08-16T07:45:00Z", "flags": ["construction"],
+                 "caption": "cones along the north kerb"}]},
+            timeout=300)
+        self.assertEqual(service.validate(obs), [], "enveloped read violated §6.2")
+        self.assertEqual(obs["camera_id"], "ENVELOPE-TEST")
+        self.assertIsInstance(obs["people_count"], int)
+
+    def test_bare_framerecord_still_works(self):
+        """The envelope must not break the plain §6.1 shape."""
+        f = sorted((HERE / "lab" / "samples").glob("*.jpg"))[0]
+        obs = self.post("/read", {"camera_id": "BARE-TEST",
+                                  "captured_at": "2026-08-16T08:00:00Z", "kind": "frame",
+                                  "path": str(f), "source": "sdot-snapshot",
+                                  "stale": False}, timeout=300)
+        self.assertEqual(service.validate(obs), [])
 
     def test_cache_hit_is_fast_and_identical(self):
         """Two users routing past the same camera must not both pay for the GPU."""
@@ -265,7 +358,8 @@ def main():
     a, rest = ap.parse_known_args()
     loader = unittest.TestLoader()
     suite = unittest.TestSuite()
-    for cls in (TestFlagEnum, TestValidate, TestAsList, TestParseJson, TestDeadCamera):
+    for cls in (TestFlagEnum, TestValidate, TestAsList, TestParseJson, TestDeadCamera,
+                TestIllumination):
         suite.addTests(loader.loadTestsFromTestCase(cls))
     if a.live:
         suite.addTests(loader.loadTestsFromTestCase(TestLive))

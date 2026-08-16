@@ -102,6 +102,18 @@ CV_RANGE_MAX_M = float(os.getenv("CV_RANGE_MAX_M", "250"))
 CV_PREFETCH = os.getenv("CV_PREFETCH", "1") not in ("0", "false", "no")
 CV_HOT_TTL_S = float(os.getenv("CV_HOT_TTL_S", "30"))
 
+# --- laptop fast-path frame prep (orchestration side, pre-inference) ------
+# Before a frame is shipped to the yolo worker pool, bound its long side to
+# CV_PREP_MAX_DIM px (aspect preserved — locate.py's bearing/range math is
+# ratio-based, so world estimates are unchanged) and re-encode as JPEG, so
+# the process pool pickles tens of KB instead of a ~6 MB raw BGR ndarray.
+# yolo resizes to CV_INPUT_SIZE (416) anyway, so 640 loses nothing. 0
+# disables. detlib (the HQ source-of-truth pass) always gets the full frame.
+CV_PREP_MAX_DIM = int(os.getenv("CV_PREP_MAX_DIM", "640"))
+CV_PREP_JPEG_Q = int(os.getenv("CV_PREP_JPEG_Q", "80"))
+# incoming JPEGs at or under this size skip the decode/re-encode round trip
+CV_PREP_MAX_JPEG_KB = int(os.getenv("CV_PREP_MAX_JPEG_KB", "220"))
+
 # --- inference backend (reconciled with Adi's modules/vlm/lab/detlib.py) --
 # "auto": detlib (the source of truth) when CUDA is available, yolo on
 # CPU-only boxes for latency. "detlib" / "yolo" force a backend.
