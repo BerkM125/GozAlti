@@ -273,6 +273,17 @@ async function handle(req: Request): Promise<Response> {
     );
   }
 
+  // Local-CNN detections with world positions (demo-ui row 7). Fast lane is
+  // cache-backed upstream (poll-safe); ?backend=detlib&force=true is the HQ
+  // one-shot still and can genuinely take a while, hence the longer timeout.
+  const cvCam = path.match(/^\/api\/cv\/camera\/([^/]+)$/);
+  if (cvCam) {
+    return ingestPassthrough(
+      `/api/cv/camera/${encodeURIComponent(cvCam[1])}${url.search}`,
+      url.searchParams.get("force") === "true" ? 45_000 : 8000,
+    );
+  }
+
   // -- routing (in-process fallback router) ----------------------------------
   // POST { origin: [lon,lat], dest: [lon,lat], algorithm? }
   // GET  ?from=lat,lon&to=lat,lon&algorithm=
