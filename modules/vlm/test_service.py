@@ -286,6 +286,35 @@ class TestLive(unittest.TestCase):
         print(f"\n    {f.name[:34]}: luma {lum['mean_luma']} bucket {lum['bucket']} "
               f"dark_frac {lum['dark_fraction']} -> flags {obs['flags']}")
 
+    def test_accepts_media_ingest_envelope(self):
+        """media-ingest pushes {frame_record, image_b64, prior_observations}. That shape
+        must work, and image_b64 must remove the dependency on paths this containerised
+        service may not be able to resolve."""
+        import base64
+        f = sorted((HERE / "lab" / "samples").glob("*.jpg"))[0]
+        obs = self.post("/read", {
+            "frame_record": {"camera_id": "ENVELOPE-TEST",
+                             "captured_at": "2026-08-16T08:00:00Z", "kind": "frame",
+                             "path": "/a/path/this/service/cannot/see.jpg",
+                             "source": "sdot-snapshot", "stale": False},
+            "image_b64": base64.b64encode(f.read_bytes()).decode(),
+            "prior_observations": [
+                {"frame_ts": "2026-08-16T07:45:00Z", "flags": ["construction"],
+                 "caption": "cones along the north kerb"}]},
+            timeout=300)
+        self.assertEqual(service.validate(obs), [], "enveloped read violated §6.2")
+        self.assertEqual(obs["camera_id"], "ENVELOPE-TEST")
+        self.assertIsInstance(obs["people_count"], int)
+
+    def test_bare_framerecord_still_works(self):
+        """The envelope must not break the plain §6.1 shape."""
+        f = sorted((HERE / "lab" / "samples").glob("*.jpg"))[0]
+        obs = self.post("/read", {"camera_id": "BARE-TEST",
+                                  "captured_at": "2026-08-16T08:00:00Z", "kind": "frame",
+                                  "path": str(f), "source": "sdot-snapshot",
+                                  "stale": False}, timeout=300)
+        self.assertEqual(service.validate(obs), [])
+
     def test_cache_hit_is_fast_and_identical(self):
         """Two users routing past the same camera must not both pay for the GPU."""
         f = sorted((HERE / "lab" / "samples").glob("*.jpg"))[0]
