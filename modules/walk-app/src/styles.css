@@ -874,9 +874,16 @@ button {
 }
 
 /* Neutral by design: an accent on every block would spend the attention that a
-   live alert depends on. */
+   live alert depends on.
+
+   No `position` here, ever. MapLibre anchors each marker by making its root
+   `position: absolute` (`.maplibregl-marker`), and this sheet loads after
+   maplibre-gl.css at equal specificity - a `position: relative` here silently
+   wins, drops the marker into normal flow, and every camera ends up displaced
+   by the stacked height of the markers before it, drifting as the list
+   reorders. The root is still a positioned ancestor, so `.mk-cone`'s absolute
+   placement keeps working without it. */
 .mk-cam {
-  position: relative;
   width: 28px;
   height: 28px;
   border-radius: var(--r-full);

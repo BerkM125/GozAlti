@@ -60,7 +60,11 @@ export default function MapView({
   const cbs = useRef({ onMapTap, onSelectSegment, onSelectCamera, onUserLocation });
   cbs.current = { onMapTap, onSelectSegment, onSelectCamera, onUserLocation };
 
-  const markers = useRef(new Map<string, maplibregl.Marker>());
+  // Keyed markers plus the HTML they were built from, so a re-render can tell
+  // "same marker, maybe moved" from "this marker actually changed". Tearing
+  // down and recreating every marker on each pass made them all flicker and
+  // re-stack whenever anything - a camera refetch, a location tick - changed.
+  const markers = useRef(new Map<string, { marker: maplibregl.Marker; sig: string }>());
 
   // -- create once ---------------------------------------------------------
   useEffect(() => {
@@ -269,7 +273,16 @@ export default function MapView({
       if (origin) want.set("origin", { at: origin, node: el("mk mk-origin") });
       if (dest) want.set("dest", { at: dest, node: el("mk mk-dest") });
 
-      for (const c of cameras) {
+      // Camera markers belong to a planned route: the corridor query is what
+      // gives them meaning ("these watch your way"). With no route, the map
+      // stays clean - the panel still lists what is near you - except for a
+      // camera the user has actually opened, which gets its marker so the
+      // viewer's frame can be placed on the street.
+      const mapCameras = result
+        ? cameras
+        : cameras.filter((c) => c.camera_id === selectedCamera);
+
+      for (const c of mapCameras) {
         const live = c.live_hls ? "mk-cam-live" : "";
         const sel = c.camera_id === selectedCamera ? "is-selected" : "";
         const node = el(`mk mk-cam ${live} ${sel}`, CAMERA_MARKER_GLYPH);
@@ -300,14 +313,22 @@ export default function MapView({
         });
       }
 
-      for (const [key, marker] of markers.current) {
+      for (const [key, entry] of markers.current) {
         if (!want.has(key)) {
-          marker.remove();
+          entry.marker.remove();
           markers.current.delete(key);
         }
       }
       for (const [key, spec] of want) {
-        markers.current.get(key)?.remove();
+        // The signature is read before MapLibre decorates the element with its
+        // own classes and inline transform, so it describes only what we built.
+        const sig = spec.node.outerHTML;
+        const existing = markers.current.get(key);
+        if (existing && existing.sig === sig) {
+          existing.marker.setLngLat(spec.at); // same marker, possibly moved
+          continue;
+        }
+        existing?.marker.remove();
         if (spec.onClick) {
           spec.node.addEventListener("click", (ev) => {
             ev.stopPropagation();
@@ -317,10 +338,10 @@ export default function MapView({
         const marker = new maplibregl.Marker({ element: spec.node, anchor: "center" })
           .setLngLat(spec.at)
           .addTo(m);
-        markers.current.set(key, marker);
+        markers.current.set(key, { marker, sig });
       }
     });
-  }, [origin, dest, userPos, cameras, detections, selectedCamera]);
+  }, [origin, dest, userPos, cameras, detections, selectedCamera, result]);
 
   return <div ref={container} className="map" />;
 }

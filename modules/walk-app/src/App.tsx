@@ -346,9 +346,15 @@ export default function App() {
     setPanel(null);
   }, []);
 
-  /** The map's GeolocateControl is the other way a position arrives. */
+  /**
+   * The map's GeolocateControl is the other way a position arrives - and with
+   * `trackUserLocation` it arrives continuously. Keeping the previous state
+   * identity for sub-10 m jitter matters: every new `userPos` reference
+   * cascades into a camera refetch and a marker pass, so GPS noise would
+   * otherwise keep the whole camera layer gently churning.
+   */
   const onGeolocate = useCallback((p: LngLat) => {
-    setUserPos(p);
+    setUserPos((prev) => (prev && dist(prev, p) < 10 ? prev : p));
     setLocationWhy(null);
   }, []);
 
