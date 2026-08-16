@@ -113,8 +113,8 @@ struct ContentView: View {
             ForEach([speech.permissionProblem, loc.problem, caller.lastError].compactMap { $0 }, id: \.self) { p in
                 Text(p).font(.system(size: 11, design: .monospaced)).foregroundStyle(bad)
             }
-            if !msg.outcome.isEmpty {
-                Text(msg.outcome).font(.system(size: 11, design: .monospaced)).foregroundStyle(go)
+            ForEach([caller.lastOutcome, msg.outcome].filter { !$0.isEmpty }, id: \.self) { o in
+                Text(o).font(.system(size: 11, design: .monospaced)).foregroundStyle(go)
             }
         }
     }

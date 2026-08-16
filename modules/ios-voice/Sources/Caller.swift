@@ -40,21 +40,27 @@ final class Caller: ObservableObject {
     @Published var lastError: String?
     @Published var lastOutcome = ""
 
-    /// Optional backend that rings the contact and speaks the situation — modules/calling
-    /// on the Acer box, `http://<box>:8060/alert`. Empty = dialer, one tap.
-    @AppStorage("callServerURL") var callServerURL = ""
+    /// Backend that rings the contact and speaks the situation — modules/calling.
+    /// Defaults to the box this build was made on; editable in the UI when that changes.
+    /// Empty = fall back to the dialer, one tap.
+    @AppStorage("callServerURL") var callServerURL = Caller.defaultServer
+    static let defaultServer = "http://172.16.95.111:8060/alert"
     var hasServer: Bool { !callServerURL.trimmingCharacters(in: .whitespaces).isEmpty }
 
-    /// One tap: hands the number to the Phone app, user connects.
+    /// Ring the contact. The server does it unattended if one is configured; otherwise
+    /// the dialer, which costs one tap.
     func place(fix: Fix?) -> String {
         let digits = number.filter { $0.isNumber || $0 == "+" }
-        guard !digits.isEmpty else {
-            lastError = "No number set for \(contact)."
-            return lastError!
-        }
-        if !callServerURL.isEmpty {
+        // The server knows the destination from CALLING_CONTACT_NUMBER, so an empty
+        // field here is fine — nobody should have to type a phone number while in
+        // trouble. Only the dialer path genuinely needs one.
+        if hasServer {
             Task { await placeViaServer(digits, fix: fix) }
             return "Asking the server to call \(contact)…"
+        }
+        guard !digits.isEmpty else {
+            lastError = "No number set for \(contact), and no alert service configured."
+            return lastError!
         }
         guard let url = URL(string: "tel://\(digits)"),
               UIApplication.shared.canOpenURL(url) else {
@@ -75,15 +81,28 @@ final class Caller: ObservableObject {
         req.httpMethod = "POST"
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         req.timeoutInterval = 15
-        req.httpBody = try? JSONSerialization.data(withJSONObject: [
-            "to": digits, "contact": contact,
+        var payload: [String: Any] = [
+            "contact": contact,
             "message": Situation.report(contact: contact, fix: fix, spoken: true),
-        ])
+        ]
+        // Omit "to" entirely when unset so the server falls back to its configured
+        // contact rather than receiving an empty string and dialing nothing.
+        if !digits.isEmpty { payload["to"] = digits }
+        req.httpBody = try? JSONSerialization.data(withJSONObject: payload)
         do {
             let (data, resp) = try await URLSession.shared.data(for: req)
             let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
             if (200..<300).contains(code) {
-                lastOutcome = "Server placed the call to \(contact)"
+                // Report which channels actually landed. "Reached" and "attempted" are
+                // different facts and the user was just told someone is being called.
+                let sent = (try? JSONSerialization.jsonObject(with: data))
+                    .flatMap { ($0 as? [String: Any])?["channels"] as? [String: Any] }
+                    .map { ch in ch.compactMap { k, v in
+                        ((v as? [String: Any])?["status"] as? String) == "sent" ? k : nil
+                    }.sorted() } ?? []
+                lastOutcome = sent.isEmpty
+                    ? "Server accepted, but no channel reported success"
+                    : "Reached \(contact) via " + sent.joined(separator: ", ")
                 lastError = nil
             } else {
                 lastError = "Call server returned \(code): "
@@ -92,8 +111,9 @@ final class Caller: ObservableObject {
         } catch {
             // Loud, never silent: the user was just told someone is being called.
             lastError = "Call server unreachable — \(error.localizedDescription). "
-                      + "Falling back to the dialer."
-            if let url = URL(string: "tel://\(digits)") {
+                      + (digits.isEmpty ? "No number to fall back to."
+                                        : "Falling back to the dialer.")
+            if !digits.isEmpty, let url = URL(string: "tel://\(digits)") {
                 await UIApplication.shared.open(url)
             }
         }

@@ -175,11 +175,18 @@ def send_twilio(msg, to="", **_):
     if not (creds and frm and to):
         return None
     sid, user, pw = creds
-    # <Say> reads the report aloud; the loop repeats it once because a person answering
-    # a robocall typically misses the first sentence.
-    safe = (msg.replace("&", "and").replace("<", "").replace(">", ""))
-    twiml = f"<Response><Pause length='1'/><Say voice='Polly.Joanna' loop='2'>{safe}</Say></Response>"
-    body = urllib.parse.urlencode({"To": to, "From": frm, "Twiml": twiml}).encode()
+    # Trial accounts are refused the inline `Twiml` parameter — "trial accounts have
+    # limited parameter access". So the call points at a hosted TwiML `Url` instead.
+    # Twimlets is Twilio's own free hosted endpoint, which means no tunnel and no public
+    # server of our own just to read one sentence aloud. Set TWILIO_TWIML_URL to override
+    # with your own TwiML Bin or endpoint.
+    safe = msg.replace("&", "and").replace("<", "").replace(">", "")
+    url = os.environ.get("TWILIO_TWIML_URL")
+    if not url:
+        # Message[0] twice: people miss the first sentence of a robocall.
+        url = "https://twimlets.com/message?" + urllib.parse.urlencode(
+            [("Message[0]", safe), ("Message[1]", safe)])
+    body = urllib.parse.urlencode({"To": to, "From": frm, "Url": url}).encode()
     auth = base64.b64encode(f"{user}:{pw}".encode()).decode()
     return post(f"https://api.twilio.com/2010-04-01/Accounts/{sid}/Calls.json", body, {
         "Authorization": f"Basic {auth}",

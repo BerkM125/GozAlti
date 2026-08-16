@@ -65,18 +65,37 @@ def main():
         print("          TRIAL — may only dial VERIFIED numbers, and every call is")
         print("          prefixed with Twilio's own trial announcement.")
 
-    owned = [n["phone_number"] for n in get("IncomingPhoneNumbers.json").get("incoming_phone_numbers", [])]
+    # Surface API errors instead of letting a failed lookup read as an empty list. An
+    # earlier version reported "verified: NONE" when the endpoint had actually returned
+    # 401, which is a different problem with a different fix.
+    raw = get("IncomingPhoneNumbers.json?PageSize=50")
+    if "_error" in raw:
+        print(f"from    : lookup failed — {raw['_error']}")
+        owned = []
+    else:
+        owned = [n["phone_number"] for n in raw.get("incoming_phone_numbers", [])]
     print(f"from    : {owned or 'NONE — buy a number, trial credit covers it'}")
     if FROM and FROM not in owned:
         print(f"          !! TWILIO_FROM={FROM} is not a number on this account")
 
-    verified = [c["phone_number"] for c in get("OutgoingCallerIds.json").get("outgoing_caller_ids", [])]
-    print(f"verified: {verified or 'NONE'}")
-    if typ == "Trial" and TO and TO not in verified:
+    rawv = get("OutgoingCallerIds.json?PageSize=50")
+    if "_error" in rawv:
+        # Trial accounts cannot LIST verified caller IDs over the API, so absence of a
+        # list is not evidence that nothing is verified. Say that, rather than guessing.
+        verified, listable = [], False
+        print(f"verified: cannot list on this account — {rawv['_error'][:90]}")
+    else:
+        verified = [c["phone_number"] for c in rawv.get("outgoing_caller_ids", [])]
+        listable = True
+        print(f"verified: {verified or 'NONE'}")
+    if typ == "Trial" and TO and listable and TO not in verified:
         print(f"          !! CALLING_CONTACT_NUMBER={TO} is NOT verified — the call will")
         print("             be rejected. Console -> Phone Numbers -> Verified Caller IDs.")
 
-    ok = bool(owned) and (typ != "Trial" or not TO or TO in verified)
+    if typ == "Trial" and TO and not listable:
+        print(f"          ?  cannot confirm {TO} is verified. If the call fails with")
+        print("             21210/21219, that is what it means.")
+    ok = bool(owned) and (typ != "Trial" or not TO or not listable or TO in verified)
     print("\nready to ring." if ok else "\nnot ready — fix the !! lines above.")
     return 0 if ok else 1
 
