@@ -263,6 +263,7 @@ class CameraGraph:
     # -- contract shapes --------------------------------------------------
 
     def _to_convergence_cam(self, n: dict) -> dict:
+        from . import activity  # local import: activity has no graph dependency
         b = n.get("bearing") or {}
         return {
             "camera_id": n["camera_id"],
@@ -271,6 +272,8 @@ class CameraGraph:
             "bearing_conf": b.get("bearing_conf"),
             "live_hls": n.get("hls_url") if n.get("has_stream") else None,
             "snapshot_url": n.get("snapshot_url"),
+            "activity": activity.effective_activity(n),
+            "last_activity_at": n.get("last_activity_at"),
         }
 
     def convergence(self, lat: float | None = None, lon: float | None = None,

@@ -82,10 +82,46 @@ curl -X POST localhost:8030/api/sweep/start
 Internal layout: `ingest/graph.py` (camera graph + spatial/street queries),
 `feeds.py` (rate-gated snapshots + HLS segment frames, FrameRecord emission),
 `orientation.py` + `solar.py` (bearing stack: manual > sat-VLM > corner-token >
-sun-history > sun-instant), `detect.py` (BFS detection traversal, 10 s between
-passes, hot-lane priority), `vlm_client.py` (OpenAI-compatible NIM endpoint,
-Anthropic fallback), `service.py` (REST on :8030), `netboot.py` (DNS-over-TCP
-bootstrap for hostile venue networks, ported from surukamera).
+sun-history > sun-instant), `activity.py` (binary pixel-activity flag),
+`detect.py` (BFS detection traversal, 10 s between passes, hot-lane priority),
+`observations.py` + `vlm_forward.py` (temporal breadcrumbs + :8040/read push),
+`vlm_client.py` (OpenAI-compatible NIM endpoint, Anthropic fallback),
+`service.py` (REST on :8030), `netboot.py` (DNS-over-TCP bootstrap for hostile
+venue networks, ported from surukamera).
+
+## Activity flag (attention prior)
+
+Every node carries `activity`: a **binary** pixel-motion flag (median-guarded
+MAD between the camera's two most recent frames, downscaled 160×120 grayscale)
+computed opportunistically inside the frame path — **zero extra upstream
+requests**. Guards: placeholder → `null "stale"`; global luminance shift
+subtracted; >60% pixels changed → `null "camera-moved"` + bearing-confidence
+downgrade; hysteresis hi=4.0/lo=2.0 (distribution-checked against surukamera's
+snapshot cache — verify live, esp. at night); source mismatch (hls vs snapshot)
+→ `"no-pair"`. Flags older than `ACTIVITY_MAX_AGE_S` (300 s) read back as
+`null`. `active` means exactly "pixel change above threshold between two
+timestamped frames" — never "person detected", "busy", or any safety word.
+`last_activity_at` on the node feeds co-presence later. The sweep uses the flag
+as its hot-lane scheduler (inactive cameras drop to every
+`SLOW_LANE_EVERY_N`-th pass) and **runs without any VLM backend** — frames
+still get fetched so the flags stay fresh. Persisted in `camera_graph.json`
+(throttled saves + at each pass end).
+
+Endpoints: `GET /api/activity` (full-city map, ~0.1 ms from memory),
+`active_only=` on `/api/cameras` and `/api/nearby`; `activity` +
+`last_activity_at` ride along in camera responses and `convergence()` output
+(additive fields next to the §6.7 shape — flag to harness/frontend owners).
+
+## Temporal breadcrumbs (VLM hot lane)
+
+`vlm_forward.read_camera()` pushes hot-lane frames to `POST $VLM_READ_URL`
+(:8040/read) as `{"frame_record": <§6.1 untouched>, "image_b64": ...,
+"prior_observations": [last ≤3 Observations §6.2, verbatim]}`, records the
+returned Observation (ring buffer + `data/observations/*.jsonl`), and forwards
+it to `$SYNTH_OBS_URL` if set. **`prior_observations` is a sibling key, not a
+§6.1 field — Adi/Dhruv must confirm :8040/read tolerates it; graduating it
+into the contract is a god-spec §6 edit with owner sign-off.** Manual trigger:
+`POST /api/read/{cid}`; buffer inspection: `GET /api/observations/{cid}`.
 
 Known limitation vs surukamera's stack: the oneway+optical-flow bearing layer
 is not ported yet (heaviest layer; needs stream sampling over time).
@@ -94,9 +130,9 @@ is not ported yet (heaviest layer; needs stream sampling over time).
 
 Graph nodes are open dicts, so these attach without schema changes:
 
-- **Co-presence**: "last person seen on this road" — already derivable from the
-  detection sweep (`live.analyzed_at` + person detections); needs a per-node
-  rolling `last_person_at` field.
+- **Co-presence**: "last person seen on this road" — `last_activity_at`
+  (pixel-level) now exists on every node; the person-level version needs the
+  detection sweep's person detections rolled into a `last_person_at` field.
 - **Duck-into buildings**: nearby institutions/shops with `opening_hours`
   (OSM/Overpass; optionally Google Places), keycard/security notes.
 - **Alley classification**: OSM `highway=service` + `service=alley` on nearby

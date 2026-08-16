@@ -40,7 +40,8 @@ from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from . import config, detect, feeds, netboot, orientation
+from . import (activity, config, detect, feeds, netboot, observations,
+               orientation, vlm_forward)
 from .graph import CameraGraph
 
 app = FastAPI(title="GozAlti media-ingest")
@@ -49,6 +50,7 @@ app.add_middleware(CORSMiddleware, allow_origins=["*"],
 
 G = CameraGraph.load()
 detect.load_persisted()
+activity.register_saver(G.save)   # flags persist to the on-disk artifact
 http_async = netboot.make_async_client()
 _sweep_task: asyncio.Task | None = None
 
@@ -63,7 +65,11 @@ def _node_or_404(cid: str) -> dict:
 def _light(n: dict) -> dict:
     b = n.get("bearing") or {}
     live = detect.live_state(n["camera_id"])
+    act = activity.effective_activity(n)
     return {
+        "activity": act,
+        "active": act.get("active") if act else None,
+        "last_activity_at": n.get("last_activity_at"),
         "camera_id": n["camera_id"], "key": n.get("key"),
         "lat": n["lat"], "lon": n["lon"],
         "desc": n.get("location_desc"), "street": n.get("street_name"),
@@ -89,8 +95,17 @@ def api_health():
 
 
 @app.get("/api/cameras")
-def api_cameras():
-    return [_light(n) for n in G.nodes.values()]
+def api_cameras(active_only: bool = False):
+    out = [_light(n) for n in G.nodes.values()]
+    return [c for c in out if c["active"]] if active_only else out
+
+
+@app.get("/api/activity")
+def api_activity():
+    """Full-city activity map: which cameras show pixel-level motion right
+    now. This is a pixel-change signal, not a people/safety signal."""
+    return {cid: activity.effective_activity(n)
+            for cid, n in G.nodes.items()}
 
 
 @app.get("/api/camera/{cid}")
@@ -101,10 +116,14 @@ def api_camera(cid: str):
 
 
 @app.get("/api/nearby")
-def api_nearby(lat: float, lon: float, radius_m: float = 100.0):
+def api_nearby(lat: float, lon: float, radius_m: float = 100.0,
+               active_only: bool = False):
+    cams = [_light(n) for n in G.nearby(lat, lon, radius_m)]
+    if active_only:
+        cams = [c for c in cams if c["active"]]
     return {"query": {"lat": lat, "lon": lon, "radius_m": radius_m},
             "street_near": G.street_near(lat, lon, max(radius_m, 150.0)),
-            "cameras": [_light(n) for n in G.nearby(lat, lon, radius_m)]}
+            "cameras": cams}
 
 
 @app.get("/api/convergence")
@@ -232,6 +251,26 @@ def api_analyze(cid: str):
     if res is None:
         raise HTTPException(502, "analysis failed")
     return res
+
+
+@app.post("/api/read/{cid}")
+def api_read(cid: str):
+    """Hot-lane push to the vlm module (:8040/read) with temporal
+    breadcrumbs. Needs VLM_READ_URL configured."""
+    _node_or_404(cid)
+    if not vlm_forward.enabled():
+        raise HTTPException(503, "VLM_READ_URL not configured")
+    obs = vlm_forward.read_camera(G.nodes[cid])
+    if obs is None:
+        raise HTTPException(502, "no frame or vlm read failed")
+    return obs
+
+
+@app.get("/api/observations/{cid}")
+def api_observations(cid: str):
+    """The breadcrumb ring buffer for a camera (verbatim Observations)."""
+    _node_or_404(cid)
+    return observations.priors(cid)
 
 
 class PriorityBody(BaseModel):
