@@ -95,6 +95,34 @@ def score(people, vehicles):
             "visibility_proxy": round(conf, 3) if conf is not None else None}
 
 
+def rank(rows):
+    """Percentile each camera against the others in the SAME sweep, per signal.
+
+    Absolute thresholds are meaningless across these cameras: a freeway ramp with 16
+    cars is empty, a downtown block with 16 is jammed, because the field of view is
+    different. Comparing every camera to every other camera at the same moment
+    cancels the sun, the weather and the day of week, and what is left is the
+    difference between this corner and the rest of the city right now. (Same
+    reasoning as experiments/safe-walk baseline.rank_now.)
+    """
+    def pct(vals, v):
+        lower = sum(1 for x in vals if x < v)
+        equal = sum(1 for x in vals if x == v)
+        return round(100 * (lower + 0.5 * equal) / len(vals))
+    if len(rows) < 4:            # too few to rank honestly
+        for r in rows: r["rank"] = None
+        return rows
+    keys = {"pedestrian_rank": "people_count", "traffic_rank": "vehicle_count",
+            "population_rank": "population"}
+    for name, field in keys.items():
+        vals = [r[field] for r in rows]
+        for r in rows:
+            r.setdefault("rank", {})[name] = pct(vals, r[field])
+    for r in rows:
+        r["rank"]["of"] = len(rows)
+    return rows
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("images", nargs="+")
@@ -133,9 +161,18 @@ def main():
         print(f"{Path(f).name[:44]:46} {ms:6.0f}ms  people {sc['people_count']:3d}  "
               f"vehicles {sc['vehicle_count']:3d}  pop {sc['population']:3d}  "
               f"conf {sc['visibility_proxy'] if sc['visibility_proxy'] is not None else '—'}")
-        if a.json_out:
-            with open(HERE / a.json_out, "a") as fh:
-                fh.write(json.dumps(rec) + "\n")
+
+    rank(rows)
+    if any(r.get("rank") for r in rows):
+        print("\nranked against the rest of this sweep (percentile, 100 = busiest):")
+        print(f"{'camera':24} {'ped':>5} {'traffic':>8} {'pop':>5}")
+        for r in sorted(rows, key=lambda r: -r["rank"]["population_rank"]):
+            k = r["rank"]
+            print(f"{(r['camera_id'] or Path(r['frame']).stem)[:24]:24} "
+                  f"p{k['pedestrian_rank']:<4} p{k['traffic_rank']:<7} p{k['population_rank']:<4}")
+    if a.json_out:
+        with open(HERE / a.json_out, "a") as fh:
+            for r in rows: fh.write(json.dumps(r) + "\n")
 
     n = len(rows)
     tot_ms = sum(r["ms"] for r in rows)
