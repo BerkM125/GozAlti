@@ -1,0 +1,24 @@
+# environments
+.venv/
+venv/
+node_modules/
+__pycache__/
+*.pyc
+.env
+
+# OS noise
+.DS_Store
+Thumbs.db
+
+# heavy runtime artifacts — rebuildable, never committed
+experiments/safe-walk/data/
+experiments/surukamera/cache/
+experiments/surukamera/debug/
+modules/*/data/
+demo/fallback/*.mp4
+demo/fallback/*.mov
+*.log
+
+# NOTE: experiments/surukamera/data/ (~18 MB) is intentionally NOT ignored —
+# its README states the repo ships with data/ populated so the demo runs
+# offline. Drop it here if repo size becomes a problem.

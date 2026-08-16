@@ -1,0 +1,320 @@
+{"kind": "request", "method": "GET", "url": "https://web.seattle.gov/Travelers/"}
+{"kind": "response", "status": 200, "url": "https://web.seattle.gov/Travelers/", "content_type": "text/html; charset=utf-8"}
+{"kind": "request", "method": "GET", "url": "https://web.seattle.gov/Travelers/Content/Css/bootstrap.css"}
+{"kind": "request", "method": "GET", "url": "https://web.seattle.gov/Travelers/Content/Css/site.css"}
+{"kind": "request", "method": "GET", "url": "https://web.seattle.gov/Travelers/Content/Css/justified-nav.css"}
+{"kind": "request", "method": "GET", "url": "https://code.jquery.com/ui/1.10.4/themes/ui-lightness/jquery-ui.css"}
+{"kind": "request", "method": "GET", "url": "https://web.seattle.gov/Travelers/Scripts/modernizr-2.6.2.js"}
+{"kind": "request", "method": "GET", "url": "https://web.seattle.gov/Travelers/Scripts/jquery-1.10.2.js"}
+{"kind": "request", "method": "GET", "url": "https://web.seattle.gov/Travelers/Scripts/bootstrap.js"}
+{"kind": "request", "method": "GET", "url": "https://web.seattle.gov/Travelers/Scripts/respond.js"}
+{"kind": "request", "method": "GET", "url": "https://web.seattle.gov/Travelers/Scripts/jquery.validate.js"}
+{"kind": "request", "method": "GET", "url": "https://web.seattle.gov/Travelers/Scripts/jquery.validate.unobtrusive.js"}
+{"kind": "request", "method": "GET", "url": "https://content.jwplatform.com/libraries/DFRTA8HH.js?exp=1786835058071&sig=d8fb1cb4423123575e5586a936da6020"}
+{"kind": "request", "method": "GET", "url": "https://web.seattle.gov/Travelers/js/alerts.js"}
+{"kind": "request", "method": "GET", "url": "https://web.seattle.gov/Travelers/js/bridge.js"}
+{"kind": "request", "method": "GET", "url": "https://web.seattle.gov/Travelers/js/browser.js"}
+{"kind": "request", "method": "GET", "url": "https://web.seattle.gov/Travelers/js/camera.video.js"}
+{"kind": "request", "method": "GET", "url": "https://web.seattle.gov/Travelers/js/config.js"}
+{"kind": "request", "method": "GET", "url": "https://web.seattle.gov/Travelers/js/dms.js"}
+{"kind": "request", "method": "GET", "url": "https://web.seattle.gov/Travelers/js/rrc.js"}
+{"kind": "request", "method": "GET", "url": "https://web.seattle.gov/Travelers/js/traveltime.js"}
+{"kind": "request", "method": "GET", "url": "https://web.seattle.gov/Travelers/js/user.js"}
+{"kind": "request", "method": "GET", "url": "https://web.seattle.gov/Travelers/js/utils.js"}
+{"kind": "request", "method": "GET", "url": "https://web.seattle.gov/Travelers/js/view.index.js"}
+{"kind": "request", "method": "GET", "url": "https://web.seattle.gov/Travelers/js/view.login.js"}
+{"kind": "request", "method": "GET", "url": "https://web.seattle.gov/Travelers/js/view.mapcontrol.js"}
+{"kind": "request", "method": "GET", "url": "https://web.seattle.gov/Travelers/js/view.mapmain.js"}
+{"kind": "request", "method": "GET", "url": "https://web.seattle.gov/Travelers/js/view.setup.js"}
+{"kind": "request", "method": "GET", "url": "https://code.jquery.com/ui/1.10.4/jquery-ui.js"}
+{"kind": "request", "method": "GET", "url": "https://web.seattle.gov/Travelers/Content/Images/btn-vert-map-show-hide.png"}
+{"kind": "request", "method": "GET", "url": "https://web.seattle.gov/Travelers/content/images/bing_traffic_legend.png"}
+{"kind": "request", "method": "GET", "url": "https://www.bing.com/api/maps/mapcontrol?callback=loadMap"}
+{"kind": "response", "status": 200, "url": "https://web.seattle.gov/Travelers/Content/Css/bootstrap.css", "content_type": "text/css"}
+{"kind": "response", "status": 200, "url": "https://web.seattle.gov/Travelers/Content/Css/site.css", "content_type": "text/css"}
+{"kind": "response", "status": 200, "url": "https://web.seattle.gov/Travelers/Content/Css/justified-nav.css", "content_type": "text/css"}
+{"kind": "response", "status": 200, "url": "https://web.seattle.gov/Travelers/Scripts/respond.js", "content_type": "application/javascript"}
+{"kind": "response", "status": 200, "url": "https://web.seattle.gov/Travelers/Scripts/jquery.validate.unobtrusive.js", "content_type": "application/javascript"}
+{"kind": "response", "status": 200, "url": "https://web.seattle.gov/Travelers/Scripts/jquery.validate.js", "content_type": "application/javascript"}
+{"kind": "response", "status": 200, "url": "https://code.jquery.com/ui/1.10.4/themes/ui-lightness/jquery-ui.css", "content_type": "text/css"}
+{"kind": "response", "status": 200, "url": "https://web.seattle.gov/Travelers/js/alerts.js", "content_type": "application/javascript"}
+{"kind": "response", "status": 200, "url": "https://web.seattle.gov/Travelers/Scripts/modernizr-2.6.2.js", "content_type": "application/javascript"}
+{"kind": "response", "status": 200, "url": "https://web.seattle.gov/Travelers/js/bridge.js", "content_type": "application/javascript"}
+{"kind": "response", "status": 200, "url": "https://web.seattle.gov/Travelers/js/browser.js", "content_type": "application/javascript"}
+{"kind": "response", "status": 200, "url": "https://web.seattle.gov/Travelers/Scripts/bootstrap.js", "content_type": "application/javascript"}
+{"kind": "response", "status": 200, "url": "https://code.jquery.com/ui/1.10.4/jquery-ui.js", "content_type": "application/javascript; charset=utf-8"}
+{"kind": "response", "status": 200, "url": "https://web.seattle.gov/Travelers/js/dms.js", "content_type": "application/javascript"}
+{"kind": "response", "status": 200, "url": "https://web.seattle.gov/Travelers/js/config.js", "content_type": "application/javascript"}
+{"kind": "response", "status": 200, "url": "https://web.seattle.gov/Travelers/js/camera.video.js", "content_type": "application/javascript"}
+{"kind": "response", "status": 200, "url": "https://web.seattle.gov/Travelers/js/rrc.js", "content_type": "application/javascript"}
+{"kind": "response", "status": 200, "url": "https://content.jwplatform.com/libraries/DFRTA8HH.js?exp=1786835058071&sig=d8fb1cb4423123575e5586a936da6020", "content_type": "text/javascript; charset=utf-8"}
+{"kind": "response", "status": 200, "url": "https://web.seattle.gov/Travelers/js/traveltime.js", "content_type": "application/javascript"}
+{"kind": "response", "status": 200, "url": "https://web.seattle.gov/Travelers/js/user.js", "content_type": "application/javascript"}
+{"kind": "response", "status": 200, "url": "https://web.seattle.gov/Travelers/js/view.login.js", "content_type": "application/javascript"}
+{"kind": "response", "status": 200, "url": "https://web.seattle.gov/Travelers/js/view.index.js", "content_type": "application/javascript"}
+{"kind": "response", "status": 200, "url": "https://web.seattle.gov/Travelers/js/utils.js", "content_type": "application/javascript"}
+{"kind": "response", "status": 200, "url": "https://web.seattle.gov/Travelers/js/view.mapcontrol.js", "content_type": "application/javascript"}
+{"kind": "response", "status": 200, "url": "https://web.seattle.gov/Travelers/js/view.setup.js", "content_type": "application/javascript"}
+{"kind": "response", "status": 200, "url": "https://web.seattle.gov/Travelers/Content/Images/btn-vert-map-show-hide.png", "content_type": "image/png"}
+{"kind": "response", "status": 200, "url": "https://web.seattle.gov/Travelers/content/images/bing_traffic_legend.png", "content_type": "image/png"}
+{"kind": "response", "status": 200, "url": "https://web.seattle.gov/Travelers/js/view.mapmain.js", "content_type": "application/javascript"}
+{"kind": "response", "status": 200, "url": "https://web.seattle.gov/Travelers/Scripts/jquery-1.10.2.js", "content_type": "application/javascript"}
+{"kind": "response", "status": 302, "url": "https://www.bing.com/api/maps/mapcontrol?callback=loadMap", "content_type": "text/html; charset=utf-8"}
+{"kind": "request", "method": "GET", "url": "https://www.bing.com/maps/sdk/mapcontrol?callback=loadMap"}
+{"kind": "request", "method": "GET", "url": "https://www.seattle.gov/images/2015_IMG/logoHome.png"}
+{"kind": "request", "method": "GET", "url": "https://web.seattle.gov/Travelers/api/Account/IsAuthenticated"}
+{"kind": "response", "status": 200, "url": "https://web.seattle.gov/Travelers/api/Account/IsAuthenticated", "content_type": "application/json; charset=utf-8"}
+{"kind": "request", "method": "GET", "url": "https://web.seattle.gov/Travelers/api/Map/GetAllNeighborhoods"}
+{"kind": "request", "method": "GET", "url": "https://web.seattle.gov/Travelers/content/images/Alert.png?09347"}
+{"kind": "request", "method": "GET", "url": "https://web.seattle.gov/Travelers/content/images/Event.png?09347"}
+{"kind": "request", "method": "GET", "url": "https://web.seattle.gov/Travelers/content/images/TravelTime.png?09342"}
+{"kind": "request", "method": "GET", "url": "https://web.seattle.gov/Travelers/content/images/Camera.png"}
+{"kind": "request", "method": "GET", "url": "https://web.seattle.gov/Travelers/content/images/DMSOn.png?09347"}
+{"kind": "request", "method": "GET", "url": "https://web.seattle.gov/Travelers/content/images/DMSOff.png?09348"}
+{"kind": "request", "method": "GET", "url": "https://web.seattle.gov/Travelers/content/images/BridgeUp.png?09347"}
+{"kind": "request", "method": "GET", "url": "https://web.seattle.gov/Travelers/content/images/BridgeDown.png?09348"}
+{"kind": "request", "method": "GET", "url": "https://web.seattle.gov/Travelers/content/images/RROpen.png?09349"}
+{"kind": "request", "method": "GET", "url": "https://web.seattle.gov/Travelers/content/images/RRClosed.png?09349"}
+{"kind": "request", "method": "GET", "url": "https://web.seattle.gov/Travelers/content/images/Traffic.png?09347"}
+{"kind": "request", "method": "GET", "url": "https://web.seattle.gov/Travelers/content/images/Neighborhoods.png?09347"}
+{"kind": "response", "status": 200, "url": "https://web.seattle.gov/Travelers/api/Map/GetAllNeighborhoods", "content_type": "application/json; charset=utf-8"}
+{"kind": "response", "status": 200, "url": "https://web.seattle.gov/Travelers/content/images/TravelTime.png?09342", "content_type": "image/png"}
+{"kind": "response", "status": 200, "url": "https://web.seattle.gov/Travelers/content/images/Camera.png", "content_type": "image/png"}
+{"kind": "response", "status": 200, "url": "https://web.seattle.gov/Travelers/content/images/Alert.png?09347", "content_type": "image/png"}
+{"kind": "response", "status": 200, "url": "https://web.seattle.gov/Travelers/content/images/Event.png?09347", "content_type": "image/png"}
+{"kind": "response", "status": 200, "url": "https://web.seattle.gov/Travelers/content/images/DMSOff.png?09348", "content_type": "image/png"}
+{"kind": "response", "status": 200, "url": "https://web.seattle.gov/Travelers/content/images/DMSOn.png?09347", "content_type": "image/png"}
+{"kind": "response", "status": 200, "url": "https://web.seattle.gov/Travelers/content/images/BridgeDown.png?09348", "content_type": "image/png"}
+{"kind": "response", "status": 200, "url": "https://web.seattle.gov/Travelers/content/images/Traffic.png?09347", "content_type": "image/png"}
+{"kind": "response", "status": 200, "url": "https://web.seattle.gov/Travelers/content/images/RRClosed.png?09349", "content_type": "image/png"}
+{"kind": "response", "status": 200, "url": "https://web.seattle.gov/Travelers/content/images/BridgeUp.png?09347", "content_type": "image/png"}
+{"kind": "response", "status": 200, "url": "https://web.seattle.gov/Travelers/content/images/RROpen.png?09349", "content_type": "image/png"}
+{"kind": "response", "status": 200, "url": "https://www.bing.com/maps/sdk/mapcontrol?callback=loadMap", "content_type": "application/javascript; charset=utf-8"}
+{"kind": "request", "method": "GET", "url": "https://r.bing.com/rp/eRFbBQiQzwVt-nM74RtNGJBlfY0.br.js"}
+{"kind": "request", "method": "GET", "url": "https://r.bing.com/rp/giU-fv9aXx66rRaMyAtaIV65PYw.br.js"}
+{"kind": "request", "method": "GET", "url": "https://r.bing.com/rp/alu35zHUU7L2k2iNHfhxhArbwVg.br.js"}
+{"kind": "request", "method": "GET", "url": "https://r.bing.com/rb/39/cir3,cc,nc/h_WyEKgHZBhvwrS2HGDiXdUPlfs.css?bu=Ao8Hkgc&or=w"}
+{"kind": "request", "method": "GET", "url": "https://r.bing.com/rp/LML3EKwFWSA4QTki2dMvykxvFvQ.br.js"}
+{"kind": "request", "method": "GET", "url": "https://r.bing.com/rp/JVbYfuQaZhCGZSLWQ4NEvftEj0I.br.js"}
+{"kind": "request", "method": "GET", "url": "https://r.bing.com/rp/azf8tFkoqNqJzrRps6AwFRgZN8g.br.js"}
+{"kind": "request", "method": "GET", "url": "https://r.bing.com/rp/zzzaddGkWBKzIAUkKs17UrcS0TM.br.js"}
+{"kind": "request", "method": "GET", "url": "https://r.bing.com/rp/xw0qweTDDWGwh2LPZCtNUI5mMbI.br.js"}
+{"kind": "request", "method": "GET", "url": "https://r.bing.com/rs/39/3y/cir3,cc,nc/30WFmNOkVyT43YChIC3iMwODonM.css?or=w"}
+{"kind": "request", "method": "GET", "url": "https://r.bing.com/rp/dBIbltAcznDex-LozXNlOgyZXZs.br.js"}
+{"kind": "request", "method": "GET", "url": "https://r.bing.com/rb/39/cir3,cc,nc/ryZWNhQVzdzrVKw_zvfi-kNU0Kk.css?bu=AoUIjAg&or=w"}
+{"kind": "request", "method": "GET", "url": "https://r.bing.com/rp/mL3YFZSgSqByPJyf1vAa7edQuqw.br.js"}
+{"kind": "response", "status": 200, "url": "https://web.seattle.gov/Travelers/content/images/Neighborhoods.png?09347", "content_type": "image/png"}
+{"kind": "response", "status": 200, "url": "https://r.bing.com/rb/39/cir3,cc,nc/h_WyEKgHZBhvwrS2HGDiXdUPlfs.css?bu=Ao8Hkgc&or=w", "content_type": "text/css; charset=utf-8"}
+{"kind": "response", "status": 200, "url": "https://r.bing.com/rb/39/cir3,cc,nc/ryZWNhQVzdzrVKw_zvfi-kNU0Kk.css?bu=AoUIjAg&or=w", "content_type": "text/css; charset=utf-8"}
+{"kind": "response", "status": 200, "url": "https://r.bing.com/rs/39/3y/cir3,cc,nc/30WFmNOkVyT43YChIC3iMwODonM.css?or=w", "content_type": "text/css; charset=utf-8"}
+{"kind": "response", "status": 200, "url": "https://r.bing.com/rp/giU-fv9aXx66rRaMyAtaIV65PYw.br.js", "content_type": "text/javascript; charset=utf-8"}
+{"kind": "response", "status": 200, "url": "https://r.bing.com/rp/alu35zHUU7L2k2iNHfhxhArbwVg.br.js", "content_type": "text/javascript; charset=utf-8"}
+{"kind": "response", "status": 200, "url": "https://r.bing.com/rp/JVbYfuQaZhCGZSLWQ4NEvftEj0I.br.js", "content_type": "text/javascript; charset=utf-8"}
+{"kind": "response", "status": 200, "url": "https://r.bing.com/rp/eRFbBQiQzwVt-nM74RtNGJBlfY0.br.js", "content_type": "text/javascript; charset=utf-8"}
+{"kind": "response", "status": 200, "url": "https://r.bing.com/rp/LML3EKwFWSA4QTki2dMvykxvFvQ.br.js", "content_type": "text/javascript; charset=utf-8"}
+{"kind": "response", "status": 200, "url": "https://r.bing.com/rp/azf8tFkoqNqJzrRps6AwFRgZN8g.br.js", "content_type": "text/javascript; charset=utf-8"}
+{"kind": "response", "status": 200, "url": "https://r.bing.com/rp/zzzaddGkWBKzIAUkKs17UrcS0TM.br.js", "content_type": "text/javascript; charset=utf-8"}
+{"kind": "response", "status": 200, "url": "https://r.bing.com/rp/dBIbltAcznDex-LozXNlOgyZXZs.br.js", "content_type": "text/javascript; charset=utf-8"}
+{"kind": "response", "status": 200, "url": "https://r.bing.com/rp/xw0qweTDDWGwh2LPZCtNUI5mMbI.br.js", "content_type": "text/javascript; charset=utf-8"}
+{"kind": "response", "status": 200, "url": "https://r.bing.com/rp/mL3YFZSgSqByPJyf1vAa7edQuqw.br.js", "content_type": "text/javascript; charset=utf-8"}
+{"kind": "request", "method": "GET", "url": "https://web.seattle.gov/Travelers/api/Map/MapKey"}
+{"kind": "response", "status": 200, "url": "https://web.seattle.gov/Travelers/api/Map/MapKey", "content_type": "application/json; charset=utf-8"}
+{"kind": "request", "method": "GET", "url": "https://dev.virtualearth.net/webservices/v1/LoggingService/LoggingService.svc/Log?entry=0&fmt=1&type=3&group=MapControl&name=MVC&version=v8&mkt=en-US&auth=AoBRLSg7JR_k0BylwuubwatTF3gYJL4R502ObUzxNPWYBNDouAss7RBYqCu-HZYx&jsonp=Microsoft.Maps.NetworkCallbacks.f_logCallbackRequest"}
+{"kind": "request", "method": "GET", "url": "https://www.bing.com/maps/instrumentation?q=&feature=sdk"}
+{"kind": "request", "method": "GET", "url": "https://t.ssl.ak.dynamic.tiles.virtualearth.net/comp/ch/021230021312?mkt=en-US&it=Z,L&og=2857&cb=Microsoft.Maps.NetworkCallbacks.normal&jsonso=3f10f&js=1&ur=us&tj=1&vpt=e,p,pg&cstl=rd&jp=0"}
+{"kind": "request", "method": "GET", "url": "https://t.ssl.ak.dynamic.tiles.virtualearth.net/comp/ch/021230021330?mkt=en-US&it=Z,L&og=2857&cb=Microsoft.Maps.NetworkCallbacks.normal&jsonso=3f0ff&js=1&ur=us&tj=1&vpt=e,p,pg&cstl=rd&jp=0"}
+{"kind": "request", "method": "GET", "url": "https://t.ssl.ak.dynamic.tiles.virtualearth.net/comp/ch/021230021332?mkt=en-US&it=Z,L&og=2857&cb=Microsoft.Maps.NetworkCallbacks.normal&jsonso=3f11f&js=1&ur=us&tj=1&vpt=e,p,pg&cstl=rd&jp=0"}
+{"kind": "request", "method": "GET", "url": "https://t.ssl.ak.dynamic.tiles.virtualearth.net/comp/ch/021230021313?mkt=en-US&it=Z,L&og=2857&cb=Microsoft.Maps.NetworkCallbacks.normal&jsonso=3f120&js=1&ur=us&tj=1&vpt=e,p,pg&cstl=rd&jp=0"}
+{"kind": "request", "method": "GET", "url": "https://t.ssl.ak.dynamic.tiles.virtualearth.net/comp/ch/021230021331?mkt=en-US&it=Z,L&og=2857&cb=Microsoft.Maps.NetworkCallbacks.normal&jsonso=3f110&js=1&ur=us&tj=1&vpt=e,p,pg&cstl=rd&jp=0"}
+{"kind": "request", "method": "GET", "url": "https://t.ssl.ak.dynamic.tiles.virtualearth.net/comp/ch/021230021333?mkt=en-US&it=Z,L&og=2857&cb=Microsoft.Maps.NetworkCallbacks.normal&jsonso=3f12f&js=1&ur=us&tj=1&vpt=e,p,pg&cstl=rd&jp=0"}
+{"kind": "request", "method": "GET", "url": "https://t.ssl.ak.dynamic.tiles.virtualearth.net/comp/ch/021230030202?mkt=en-US&it=Z,L&og=2857&cb=Microsoft.Maps.NetworkCallbacks.normal&jsonso=3f102&js=1&ur=us&tj=1&vpt=e,p,pg&cstl=rd&jp=0"}
+{"kind": "request", "method": "GET", "url": "https://t.ssl.ak.dynamic.tiles.virtualearth.net/comp/ch/021230030220?mkt=en-US&it=Z,L&og=2857&cb=Microsoft.Maps.NetworkCallbacks.normal&jsonso=3f0f2&js=1&ur=us&tj=1&vpt=e,p,pg&cstl=rd&jp=0"}
+{"kind": "request", "method": "GET", "url": "https://t.ssl.ak.dynamic.tiles.virtualearth.net/comp/ch/021230030222?mkt=en-US&it=Z,L&og=2857&cb=Microsoft.Maps.NetworkCallbacks.normal&jsonso=3f112&js=1&ur=us&tj=1&vpt=e,p,pg&cstl=rd&jp=0"}
+{"kind": "request", "method": "GET", "url": "https://t.ssl.ak.dynamic.tiles.virtualearth.net/comp/ch/021230030203?mkt=en-US&it=Z,L&og=2857&cb=Microsoft.Maps.NetworkCallbacks.normal&jsonso=3f113&js=1&ur=us&tj=1&vpt=e,p,pg&cstl=rd&jp=0"}
+{"kind": "request", "method": "GET", "url": "https://t.ssl.ak.dynamic.tiles.virtualearth.net/comp/ch/021230030221?mkt=en-US&it=Z,L&og=2857&cb=Microsoft.Maps.NetworkCallbacks.normal&jsonso=3f103&js=1&ur=us&tj=1&vpt=e,p,pg&cstl=rd&jp=0"}
+{"kind": "request", "method": "GET", "url": "https://t.ssl.ak.dynamic.tiles.virtualearth.net/comp/ch/021230030223?mkt=en-US&it=Z,L&og=2857&cb=Microsoft.Maps.NetworkCallbacks.normal&jsonso=3f122&js=1&ur=us&tj=1&vpt=e,p,pg&cstl=rd&jp=0"}
+{"kind": "request", "method": "GET", "url": "https://t.ssl.ak.dynamic.tiles.virtualearth.net/comp/ch/0212300213123?mkt=en-US&ur=us&it=G,LC,BX,RL&shading=hill&n=z&og=2857&cstl=rd&jp=0"}
+{"kind": "request", "method": "GET", "url": "https://t.ssl.ak.dynamic.tiles.virtualearth.net/comp/ch/0212300213301?mkt=en-US&ur=us&it=G,LC,BX,RL&shading=hill&n=z&og=2857&cstl=rd&jp=0"}
+{"kind": "request", "method": "GET", "url": "https://t.ssl.ak.dynamic.tiles.virtualearth.net/comp/ch/0212300213303?mkt=en-US&ur=us&it=G,LC,BX,RL&shading=hill&n=z&og=2857&cstl=rd&jp=0"}
+{"kind": "request", "method": "GET", "url": "https://t.ssl.ak.dynamic.tiles.virtualearth.net/comp/ch/0212300213321?mkt=en-US&ur=us&it=G,LC,BX,RL&shading=hill&n=z&og=2857&cstl=rd&jp=0"}
+{"kind": "request", "method": "GET", "url": "https://t.ssl.ak.dynamic.tiles.virtualearth.net/comp/ch/0212300213132?mkt=en-US&ur=us&it=G,LC,BX,RL&shading=hill&n=z&og=2857&cstl=rd&jp=0"}
+{"kind": "request", "method": "GET", "url": "https://t.ssl.ak.dynamic.tiles.virtualearth.net/comp/ch/0212300213310?mkt=en-US&ur=us&it=G,LC,BX,RL&shading=hill&n=z&og=2857&cstl=rd&jp=0"}
+{"kind": "request", "method": "GET", "url": "https://t.ssl.ak.dynamic.tiles.virtualearth.net/comp/ch/0212300213312?mkt=en-US&ur=us&it=G,LC,BX,RL&shading=hill&n=z&og=2857&cstl=rd&jp=0"}
+{"kind": "request", "method": "GET", "url": "https://t.ssl.ak.dynamic.tiles.virtualearth.net/comp/ch/0212300213330?mkt=en-US&ur=us&it=G,LC,BX,RL&shading=hill&n=z&og=2857&cstl=rd&jp=0"}
+{"kind": "request", "method": "GET", "url": "https://t.ssl.ak.dynamic.tiles.virtualearth.net/comp/ch/0212300213133?mkt=en-US&ur=us&it=G,LC,BX,RL&shading=hill&n=z&og=2857&cstl=rd&jp=0"}
+{"kind": "request", "method": "GET", "url": "https://t.ssl.ak.dynamic.tiles.virtualearth.net/comp/ch/0212300213311?mkt=en-US&ur=us&it=G,LC,BX,RL&shading=hill&n=z&og=2857&cstl=rd&jp=0"}
+{"kind": "request", "method": "GET", "url": "https://t.ssl.ak.dynamic.tiles.virtualearth.net/comp/ch/0212300213313?mkt=en-US&ur=us&it=G,LC,BX,RL&shading=hill&n=z&og=2857&cstl=rd&jp=0"}
+{"kind": "request", "method": "GET", "url": "https://t.ssl.ak.dynamic.tiles.virtualearth.net/comp/ch/0212300213331?mkt=en-US&ur=us&it=G,LC,BX,RL&shading=hill&n=z&og=2857&cstl=rd&jp=0"}
+{"kind": "request", "method": "GET", "url": "https://t.ssl.ak.dynamic.tiles.virtualearth.net/comp/ch/0212300302022?mkt=en-US&ur=us&it=G,LC,BX,RL&shading=hill&n=z&og=2857&cstl=rd&jp=0"}
+{"kind": "request", "method": "GET", "url": "https://t.ssl.ak.dynamic.tiles.virtualearth.net/comp/ch/0212300302200?mkt=en-US&ur=us&it=G,LC,BX,RL&shading=hill&n=z&og=2857&cstl=rd&jp=0"}
+{"kind": "request", "method": "GET", "url": "https://t.ssl.ak.dynamic.tiles.virtualearth.net/comp/ch/0212300302202?mkt=en-US&ur=us&it=G,LC,BX,RL&shading=hill&n=z&og=2857&cstl=rd&jp=0"}
+{"kind": "request", "method": "GET", "url": "https://t.ssl.ak.dynamic.tiles.virtualearth.net/comp/ch/0212300302220?mkt=en-US&ur=us&it=G,LC,BX,RL&shading=hill&n=z&og=2857&cstl=rd&jp=0"}
+{"kind": "request", "method": "GET", "url": "https://t.ssl.ak.dynamic.tiles.virtualearth.net/comp/ch/0212300302023?mkt=en-US&ur=us&it=G,LC,BX,RL&shading=hill&n=z&og=2857&cstl=rd&jp=0"}
+{"kind": "request", "method": "GET", "url": "https://t.ssl.ak.dynamic.tiles.virtualearth.net/comp/ch/0212300302201?mkt=en-US&ur=us&it=G,LC,BX,RL&shading=hill&n=z&og=2857&cstl=rd&jp=0"}
+{"kind": "request", "method": "GET", "url": "https://t.ssl.ak.dynamic.tiles.virtualearth.net/comp/ch/0212300302203?mkt=en-US&ur=us&it=G,LC,BX,RL&shading=hill&n=z&og=2857&cstl=rd&jp=0"}
+{"kind": "request", "method": "GET", "url": "https://t.ssl.ak.dynamic.tiles.virtualearth.net/comp/ch/0212300302221?mkt=en-US&ur=us&it=G,LC,BX,RL&shading=hill&n=z&og=2857&cstl=rd&jp=0"}
+{"kind": "request", "method": "GET", "url": "https://t.ssl.ak.dynamic.tiles.virtualearth.net/comp/ch/0212300302032?mkt=en-US&ur=us&it=G,LC,BX,RL&shading=hill&n=z&og=2857&cstl=rd&jp=0"}
+{"kind": "request", "method": "GET", "url": "https://t.ssl.ak.dynamic.tiles.virtualearth.net/comp/ch/0212300302210?mkt=en-US&ur=us&it=G,LC,BX,RL&shading=hill&n=z&og=2857&cstl=rd&jp=0"}
+{"kind": "request", "method": "GET", "url": "https://t.ssl.ak.dynamic.tiles.virtualearth.net/comp/ch/0212300302212?mkt=en-US&ur=us&it=G,LC,BX,RL&shading=hill&n=z&og=2857&cstl=rd&jp=0"}
+{"kind": "request", "method": "GET", "url": "https://t.ssl.ak.dynamic.tiles.virtualearth.net/comp/ch/0212300302230?mkt=en-US&ur=us&it=G,LC,BX,RL&shading=hill&n=z&og=2857&cstl=rd&jp=0"}
+{"kind": "request", "method": "GET", "url": "https://www.bing.com/maps/geotfe/comp/stl?ctpv=2&og=2857"}
+{"kind": "request", "method": "GET", "url": "https://www.bing.com/maps/geotfe/comp/stl?v=9.26&tpp=097A0D85-2585-425A-8471-60BDD3C5B7C3&og=2857"}
+{"kind": "request", "method": "GET", "url": "https://www.bing.com/maps/geotfe/comp/stl?mssetbv=9.26&og=2857"}
+{"kind": "request", "method": "GET", "url": "https://r.bing.com/rs/39/h1/cir3,cc,nc/_-41PkZNfXhs0vZSYf3BZRCWNrU.css?or=w"}
+{"kind": "request", "method": "GET", "url": "https://r.bing.com/rp/y8CD7IkIg2iYIdj-JAzEJurMP7M.br.js"}
+{"kind": "request", "method": "GET", "url": "https://r.bing.com/rp/9h25EC9egh6Xx5_21s_pYyorUhw.br.js"}
+{"kind": "request", "method": "GET", "url": "https://web.seattle.gov/Travelers/api/Map/Data?zoomId=13&type=2"}
+{"kind": "request", "method": "GET", "url": "https://web.seattle.gov/Travelers/api/Map/Data?zoomId=13&type=1"}
+{"kind": "response", "status": 200, "url": "https://r.bing.com/rs/39/h1/cir3,cc,nc/_-41PkZNfXhs0vZSYf3BZRCWNrU.css?or=w", "content_type": "text/css; charset=utf-8"}
+{"kind": "response", "status": 200, "url": "https://web.seattle.gov/Travelers/api/Map/Data?zoomId=13&type=2", "content_type": "application/json; charset=utf-8"}
+{"kind": "response", "status": 200, "url": "https://r.bing.com/rp/9h25EC9egh6Xx5_21s_pYyorUhw.br.js", "content_type": "text/javascript; charset=utf-8"}
+{"kind": "response", "status": 200, "url": "https://r.bing.com/rp/y8CD7IkIg2iYIdj-JAzEJurMP7M.br.js", "content_type": "text/javascript; charset=utf-8"}
+{"kind": "response", "status": 200, "url": "https://web.seattle.gov/Travelers/api/Map/Data?zoomId=13&type=1", "content_type": "application/json; charset=utf-8"}
+{"kind": "response", "status": 200, "url": "https://www.bing.com/maps/geotfe/comp/stl?v=9.26&tpp=097A0D85-2585-425A-8471-60BDD3C5B7C3&og=2857", "content_type": "application/json"}
+{"kind": "response", "status": 200, "url": "https://www.bing.com/maps/geotfe/comp/stl?ctpv=2&og=2857", "content_type": "application/json"}
+{"kind": "response", "status": 200, "url": "https://www.bing.com/maps/instrumentation?q=&feature=sdk", "content_type": "text/html; charset=utf-8"}
+{"kind": "response", "status": 200, "url": "https://www.bing.com/maps/geotfe/comp/stl?mssetbv=9.26&og=2857", "content_type": "application/json"}
+{"kind": "request", "method": "GET", "url": "https://www.bing.com/maps/geotfe/comp/stl?v=9.26&og=2857&idx=2,388,411,440,471,472,501,504,506&oidjs=&features=ci"}
+{"kind": "response", "status": 200, "url": "https://dev.virtualearth.net/webservices/v1/LoggingService/LoggingService.svc/Log?entry=0&fmt=1&type=3&group=MapControl&name=MVC&version=v8&mkt=en-US&auth=AoBRLSg7JR_k0BylwuubwatTF3gYJL4R502ObUzxNPWYBNDouAss7RBYqCu-HZYx&jsonp=Microsoft.Maps.NetworkCallbacks.f_logCallbackRequest", "content_type": "application/json; charset=utf-8"}
+{"kind": "request", "method": "GET", "url": "https://dev.virtualearth.net/REST/V1/Imagery/Copyright/en-US/RoadOnDemand/13/47.57193034509521/-122.44161995849609/47.64044721731037/-122.2225800415039?output=json&dir=0&jsonp=Microsoft.Maps.NetworkCallbacks.normal&jsonso=509345&key=Aq8ttSrhnH5pu0YZd22eosXEEz9VTk5Jtpqd-q_hifvDba3oeQ-jG7s06n5f_FNv&ml=B,BX&ur=us&c=en-US"}
+{"kind": "response", "status": 200, "url": "https://t.ssl.ak.dynamic.tiles.virtualearth.net/comp/ch/021230021312?mkt=en-US&it=Z,L&og=2857&cb=Microsoft.Maps.NetworkCallbacks.normal&jsonso=3f10f&js=1&ur=us&tj=1&vpt=e,p,pg&cstl=rd&jp=0", "content_type": "application/javascript; charset=utf-8"}
+{"kind": "response", "status": 200, "url": "https://t.ssl.ak.dynamic.tiles.virtualearth.net/comp/ch/021230021330?mkt=en-US&it=Z,L&og=2857&cb=Microsoft.Maps.NetworkCallbacks.normal&jsonso=3f0ff&js=1&ur=us&tj=1&vpt=e,p,pg&cstl=rd&jp=0", "content_type": "application/javascript; charset=utf-8"}
+{"kind": "response", "status": 200, "url": "https://t.ssl.ak.dynamic.tiles.virtualearth.net/comp/ch/021230021331?mkt=en-US&it=Z,L&og=2857&cb=Microsoft.Maps.NetworkCallbacks.normal&jsonso=3f110&js=1&ur=us&tj=1&vpt=e,p,pg&cstl=rd&jp=0", "content_type": "application/javascript; charset=utf-8"}
+{"kind": "response", "status": 200, "url": "https://www.bing.com/maps/geotfe/comp/stl?v=9.26&og=2857&idx=2,388,411,440,471,472,501,504,506&oidjs=&features=ci", "content_type": "application/json"}
+{"kind": "response", "status": 200, "url": "https://t.ssl.ak.dynamic.tiles.virtualearth.net/comp/ch/021230021332?mkt=en-US&it=Z,L&og=2857&cb=Microsoft.Maps.NetworkCallbacks.normal&jsonso=3f11f&js=1&ur=us&tj=1&vpt=e,p,pg&cstl=rd&jp=0", "content_type": "application/javascript; charset=utf-8"}
+{"kind": "response", "status": 200, "url": "https://t.ssl.ak.dynamic.tiles.virtualearth.net/comp/ch/021230021333?mkt=en-US&it=Z,L&og=2857&cb=Microsoft.Maps.NetworkCallbacks.normal&jsonso=3f12f&js=1&ur=us&tj=1&vpt=e,p,pg&cstl=rd&jp=0", "content_type": "application/javascript; charset=utf-8"}
+{"kind": "response", "status": 200, "url": "https://t.ssl.ak.dynamic.tiles.virtualearth.net/comp/ch/021230021313?mkt=en-US&it=Z,L&og=2857&cb=Microsoft.Maps.NetworkCallbacks.normal&jsonso=3f120&js=1&ur=us&tj=1&vpt=e,p,pg&cstl=rd&jp=0", "content_type": "application/javascript; charset=utf-8"}
+{"kind": "request", "method": "GET", "url": "https://www.bing.com/maps/geotfe/comp/stl?v=9.26&og=2857&idx=11&oidjs=&features=ci"}
+{"kind": "request", "method": "GET", "url": "https://www.bing.com/maps/geotfe/comp/stl?v=9.26&og=2857&idx=85&oidjs=&features=ci"}
+{"kind": "response", "status": 200, "url": "https://t.ssl.ak.dynamic.tiles.virtualearth.net/comp/ch/0212300213123?mkt=en-US&ur=us&it=G,LC,BX,RL&shading=hill&n=z&og=2857&cstl=rd&jp=0", "content_type": "image/jpeg"}
+{"kind": "response", "status": 200, "url": "https://t.ssl.ak.dynamic.tiles.virtualearth.net/comp/ch/0212300213301?mkt=en-US&ur=us&it=G,LC,BX,RL&shading=hill&n=z&og=2857&cstl=rd&jp=0", "content_type": "image/jpeg"}
+{"kind": "response", "status": 200, "url": "https://t.ssl.ak.dynamic.tiles.virtualearth.net/comp/ch/0212300213303?mkt=en-US&ur=us&it=G,LC,BX,RL&shading=hill&n=z&og=2857&cstl=rd&jp=0", "content_type": "image/jpeg"}
+{"kind": "response", "status": 200, "url": "https://t.ssl.ak.dynamic.tiles.virtualearth.net/comp/ch/021230030220?mkt=en-US&it=Z,L&og=2857&cb=Microsoft.Maps.NetworkCallbacks.normal&jsonso=3f0f2&js=1&ur=us&tj=1&vpt=e,p,pg&cstl=rd&jp=0", "content_type": "application/javascript; charset=utf-8"}
+{"kind": "response", "status": 200, "url": "https://t.ssl.ak.dynamic.tiles.virtualearth.net/comp/ch/021230030222?mkt=en-US&it=Z,L&og=2857&cb=Microsoft.Maps.NetworkCallbacks.normal&jsonso=3f112&js=1&ur=us&tj=1&vpt=e,p,pg&cstl=rd&jp=0", "content_type": "application/javascript; charset=utf-8"}
+{"kind": "response", "status": 200, "url": "https://t.ssl.ak.dynamic.tiles.virtualearth.net/comp/ch/021230030221?mkt=en-US&it=Z,L&og=2857&cb=Microsoft.Maps.NetworkCallbacks.normal&jsonso=3f103&js=1&ur=us&tj=1&vpt=e,p,pg&cstl=rd&jp=0", "content_type": "application/javascript; charset=utf-8"}
+{"kind": "response", "status": 200, "url": "https://t.ssl.ak.dynamic.tiles.virtualearth.net/comp/ch/0212300213321?mkt=en-US&ur=us&it=G,LC,BX,RL&shading=hill&n=z&og=2857&cstl=rd&jp=0", "content_type": "image/jpeg"}
+{"kind": "response", "status": 200, "url": "https://t.ssl.ak.dynamic.tiles.virtualearth.net/comp/ch/0212300213132?mkt=en-US&ur=us&it=G,LC,BX,RL&shading=hill&n=z&og=2857&cstl=rd&jp=0", "content_type": "image/jpeg"}
+{"kind": "response", "status": 200, "url": "https://t.ssl.ak.dynamic.tiles.virtualearth.net/comp/ch/0212300213133?mkt=en-US&ur=us&it=G,LC,BX,RL&shading=hill&n=z&og=2857&cstl=rd&jp=0", "content_type": "image/jpeg"}
+{"kind": "response", "status": 200, "url": "https://t.ssl.ak.dynamic.tiles.virtualearth.net/comp/ch/0212300213331?mkt=en-US&ur=us&it=G,LC,BX,RL&shading=hill&n=z&og=2857&cstl=rd&jp=0", "content_type": "image/jpeg"}
+{"kind": "request", "method": "GET", "url": "https://www.bing.com/maps/geotfe/comp/stl?v=9.26&og=2857&idx=7&oidjs=&features=ci"}
+{"kind": "request", "method": "GET", "url": "https://www.bing.com/maps/geotfe/comp/stl?v=9.26&og=2857&idx=83&oidjs=&features=ci"}
+{"kind": "request", "method": "GET", "url": "https://www.bing.com/maps/geotfe/comp/stl?v=9.26&og=2857&idx=410&oidjs=&features=ci"}
+{"kind": "response", "status": 200, "url": "https://t.ssl.ak.dynamic.tiles.virtualearth.net/comp/ch/0212300213312?mkt=en-US&ur=us&it=G,LC,BX,RL&shading=hill&n=z&og=2857&cstl=rd&jp=0", "content_type": "image/jpeg"}
+{"kind": "response", "status": 200, "url": "https://t.ssl.ak.dynamic.tiles.virtualearth.net/comp/ch/0212300302200?mkt=en-US&ur=us&it=G,LC,BX,RL&shading=hill&n=z&og=2857&cstl=rd&jp=0", "content_type": "image/jpeg"}
+{"kind": "response", "status": 200, "url": "https://t.ssl.ak.dynamic.tiles.virtualearth.net/comp/ch/0212300302202?mkt=en-US&ur=us&it=G,LC,BX,RL&shading=hill&n=z&og=2857&cstl=rd&jp=0", "content_type": "image/jpeg"}
+{"kind": "response", "status": 200, "url": "https://t.ssl.ak.dynamic.tiles.virtualearth.net/comp/ch/0212300302220?mkt=en-US&ur=us&it=G,LC,BX,RL&shading=hill&n=z&og=2857&cstl=rd&jp=0", "content_type": "image/jpeg"}
+{"kind": "response", "status": 200, "url": "https://t.ssl.ak.dynamic.tiles.virtualearth.net/comp/ch/021230030202?mkt=en-US&it=Z,L&og=2857&cb=Microsoft.Maps.NetworkCallbacks.normal&jsonso=3f102&js=1&ur=us&tj=1&vpt=e,p,pg&cstl=rd&jp=0", "content_type": "application/javascript; charset=utf-8"}
+{"kind": "response", "status": 200, "url": "https://t.ssl.ak.dynamic.tiles.virtualearth.net/comp/ch/0212300302022?mkt=en-US&ur=us&it=G,LC,BX,RL&shading=hill&n=z&og=2857&cstl=rd&jp=0", "content_type": "image/jpeg"}
+{"kind": "response", "status": 200, "url": "https://t.ssl.ak.dynamic.tiles.virtualearth.net/comp/ch/0212300213310?mkt=en-US&ur=us&it=G,LC,BX,RL&shading=hill&n=z&og=2857&cstl=rd&jp=0", "content_type": "image/jpeg"}
+{"kind": "response", "status": 200, "url": "https://t.ssl.ak.dynamic.tiles.virtualearth.net/comp/ch/0212300213311?mkt=en-US&ur=us&it=G,LC,BX,RL&shading=hill&n=z&og=2857&cstl=rd&jp=0", "content_type": "image/jpeg"}
+{"kind": "response", "status": 200, "url": "https://t.ssl.ak.dynamic.tiles.virtualearth.net/comp/ch/0212300213313?mkt=en-US&ur=us&it=G,LC,BX,RL&shading=hill&n=z&og=2857&cstl=rd&jp=0", "content_type": "image/jpeg"}
+{"kind": "response", "status": 200, "url": "https://t.ssl.ak.dynamic.tiles.virtualearth.net/comp/ch/0212300302023?mkt=en-US&ur=us&it=G,LC,BX,RL&shading=hill&n=z&og=2857&cstl=rd&jp=0", "content_type": "image/jpeg"}
+{"kind": "response", "status": 200, "url": "https://t.ssl.ak.dynamic.tiles.virtualearth.net/comp/ch/0212300302201?mkt=en-US&ur=us&it=G,LC,BX,RL&shading=hill&n=z&og=2857&cstl=rd&jp=0", "content_type": "image/jpeg"}
+{"kind": "response", "status": 200, "url": "https://t.ssl.ak.dynamic.tiles.virtualearth.net/comp/ch/0212300302203?mkt=en-US&ur=us&it=G,LC,BX,RL&shading=hill&n=z&og=2857&cstl=rd&jp=0", "content_type": "image/jpeg"}
+{"kind": "response", "status": 200, "url": "https://t.ssl.ak.dynamic.tiles.virtualearth.net/comp/ch/0212300302210?mkt=en-US&ur=us&it=G,LC,BX,RL&shading=hill&n=z&og=2857&cstl=rd&jp=0", "content_type": "image/jpeg"}
+{"kind": "response", "status": 200, "url": "https://t.ssl.ak.dynamic.tiles.virtualearth.net/comp/ch/0212300302212?mkt=en-US&ur=us&it=G,LC,BX,RL&shading=hill&n=z&og=2857&cstl=rd&jp=0", "content_type": "image/jpeg"}
+{"kind": "response", "status": 200, "url": "https://t.ssl.ak.dynamic.tiles.virtualearth.net/comp/ch/0212300213330?mkt=en-US&ur=us&it=G,LC,BX,RL&shading=hill&n=z&og=2857&cstl=rd&jp=0", "content_type": "image/jpeg"}
+{"kind": "response", "status": 200, "url": "https://t.ssl.ak.dynamic.tiles.virtualearth.net/comp/ch/0212300302221?mkt=en-US&ur=us&it=G,LC,BX,RL&shading=hill&n=z&og=2857&cstl=rd&jp=0", "content_type": "image/jpeg"}
+{"kind": "response", "status": 200, "url": "https://t.ssl.ak.dynamic.tiles.virtualearth.net/comp/ch/0212300302032?mkt=en-US&ur=us&it=G,LC,BX,RL&shading=hill&n=z&og=2857&cstl=rd&jp=0", "content_type": "image/jpeg"}
+{"kind": "response", "status": 200, "url": "https://t.ssl.ak.dynamic.tiles.virtualearth.net/comp/ch/021230030203?mkt=en-US&it=Z,L&og=2857&cb=Microsoft.Maps.NetworkCallbacks.normal&jsonso=3f113&js=1&ur=us&tj=1&vpt=e,p,pg&cstl=rd&jp=0", "content_type": "application/javascript; charset=utf-8"}
+{"kind": "response", "status": 200, "url": "https://t.ssl.ak.dynamic.tiles.virtualearth.net/comp/ch/0212300302230?mkt=en-US&ur=us&it=G,LC,BX,RL&shading=hill&n=z&og=2857&cstl=rd&jp=0", "content_type": "image/jpeg"}
+{"kind": "response", "status": 200, "url": "https://t.ssl.ak.dynamic.tiles.virtualearth.net/comp/ch/021230030223?mkt=en-US&it=Z,L&og=2857&cb=Microsoft.Maps.NetworkCallbacks.normal&jsonso=3f122&js=1&ur=us&tj=1&vpt=e,p,pg&cstl=rd&jp=0", "content_type": "application/javascript; charset=utf-8"}
+{"kind": "response", "status": 200, "url": "https://www.bing.com/maps/geotfe/comp/stl?v=9.26&og=2857&idx=11&oidjs=&features=ci", "content_type": "application/json"}
+{"kind": "response", "status": 200, "url": "https://dev.virtualearth.net/REST/V1/Imagery/Copyright/en-US/RoadOnDemand/13/47.57193034509521/-122.44161995849609/47.64044721731037/-122.2225800415039?output=json&dir=0&jsonp=Microsoft.Maps.NetworkCallbacks.normal&jsonso=509345&key=Aq8ttSrhnH5pu0YZd22eosXEEz9VTk5Jtpqd-q_hifvDba3oeQ-jG7s06n5f_FNv&ml=B,BX&ur=us&c=en-US", "content_type": "application/x-javascript; charset=utf-8"}
+{"kind": "response", "status": 200, "url": "https://www.bing.com/maps/geotfe/comp/stl?v=9.26&og=2857&idx=85&oidjs=&features=ci", "content_type": "application/json"}
+{"kind": "response", "status": 200, "url": "https://www.bing.com/maps/geotfe/comp/stl?v=9.26&og=2857&idx=7&oidjs=&features=ci", "content_type": "application/json"}
+{"kind": "response", "status": 200, "url": "https://www.bing.com/maps/geotfe/comp/stl?v=9.26&og=2857&idx=83&oidjs=&features=ci", "content_type": "application/json"}
+{"kind": "response", "status": 200, "url": "https://www.bing.com/maps/geotfe/comp/stl?v=9.26&og=2857&idx=410&oidjs=&features=ci", "content_type": "application/json"}
+{"kind": "request", "method": "GET", "url": "https://www.bing.com/maps/geotfe/comp/stl?v=9.26&og=2857&idx=0&oidjs=&features=ci"}
+{"kind": "response", "status": 200, "url": "https://www.bing.com/maps/geotfe/comp/stl?v=9.26&og=2857&idx=0&oidjs=&features=ci", "content_type": "application/json"}
+{"kind": "request", "method": "GET", "url": "https://web.seattle.gov/Travelers/content/images/CameraPlus.png"}
+{"kind": "response", "status": 200, "url": "https://web.seattle.gov/Travelers/content/images/CameraPlus.png", "content_type": "image/png"}
+{"kind": "request", "method": "GET", "url": "https://r.bing.com/rb/39/cir3,cc,nc/4n3KOmKAgruOFY7ktbgh-Drv0rY.css?bu=AoQKeg&or=w"}
+{"kind": "request", "method": "GET", "url": "https://r.bing.com/rp/-HK_wurCJnF68lXHOBW9-_cGcfo.br.js"}
+{"kind": "request", "method": "GET", "url": "https://r.bing.com/rp/iysYrSH0NhjubNeYYjuFO5bNpuk.br.js"}
+{"kind": "request", "method": "GET", "url": "https://r.bing.com/rb/39/cir3,cc,nc/aZ_dNpZax_-w4YYKgILn2vg_RDE.css?bu=AnF6&or=w"}
+{"kind": "request", "method": "GET", "url": "https://r.bing.com/rb/39/cir3,cc,nc/tvz6iBypO5-e640vevWimT-iaGc.css?bu=A5IJeno&or=w"}
+{"kind": "request", "method": "GET", "url": "https://r.bing.com/rp/F6EpbzsOfGVQSB72kpTCV-vWR4k.br.js"}
+{"kind": "request", "method": "GET", "url": "https://r.bing.com/rb/39/cir3,cc,nc/X8iEfogbbkeCkCD-bJAhWn7TJO0.css?bu=AqUTohM&or=w"}
+{"kind": "request", "method": "GET", "url": "https://r.bing.com/rp/Wg699zyhPTRTk1gWbE3612HI_OQ.br.js"}
+{"kind": "request", "method": "POST", "url": "https://www.bing.com/fd/ls/lsp.aspx"}
+{"kind": "request", "method": "GET", "url": "https://t.ssl.ak.dynamic.tiles.virtualearth.net/comp/ch/021230021?mkt=en-US&ur=us&it=G,LC,BX,RL&shading=hill&n=z&og=2857&cstl=rd&jp=0"}
+{"kind": "request", "method": "GET", "url": "https://t.ssl.ak.dynamic.tiles.virtualearth.net/comp/ch/021230023?mkt=en-US&ur=us&it=G,LC,BX,RL&shading=hill&n=z&og=2857&cstl=rd&jp=0"}
+{"kind": "request", "method": "GET", "url": "https://t.ssl.ak.dynamic.tiles.virtualearth.net/comp/ch/021230030?mkt=en-US&ur=us&it=G,LC,BX,RL&shading=hill&n=z&og=2857&cstl=rd&jp=0"}
+{"kind": "request", "method": "GET", "url": "https://t.ssl.ak.dynamic.tiles.virtualearth.net/comp/ch/021230032?mkt=en-US&ur=us&it=G,LC,BX,RL&shading=hill&n=z&og=2857&cstl=rd&jp=0"}
+{"kind": "request", "method": "GET", "url": "https://t.ssl.ak.dynamic.tiles.virtualearth.net/comp/ch/020?mkt=en-US&ur=us&it=G,LC,BX,RL&shading=hill&n=z&og=2857&cstl=rd&jp=0"}
+{"kind": "request", "method": "GET", "url": "https://t.ssl.ak.dynamic.tiles.virtualearth.net/comp/ch/022?mkt=en-US&ur=us&it=G,LC,BX,RL&shading=hill&n=z&og=2857&cstl=rd&jp=0"}
+{"kind": "request", "method": "GET", "url": "https://t.ssl.ak.dynamic.tiles.virtualearth.net/comp/ch/021?mkt=en-US&ur=us&it=G,LC,BX,RL&shading=hill&n=z&og=2857&cstl=rd&jp=0"}
+{"kind": "request", "method": "GET", "url": "https://t.ssl.ak.dynamic.tiles.virtualearth.net/comp/ch/023?mkt=en-US&ur=us&it=G,LC,BX,RL&shading=hill&n=z&og=2857&cstl=rd&jp=0"}
+{"kind": "response", "status": 200, "url": "https://r.bing.com/rb/39/cir3,cc,nc/4n3KOmKAgruOFY7ktbgh-Drv0rY.css?bu=AoQKeg&or=w", "content_type": "text/css; charset=utf-8"}
+{"kind": "response", "status": 200, "url": "https://r.bing.com/rb/39/cir3,cc,nc/tvz6iBypO5-e640vevWimT-iaGc.css?bu=A5IJeno&or=w", "content_type": "text/css; charset=utf-8"}
+{"kind": "response", "status": 200, "url": "https://r.bing.com/rb/39/cir3,cc,nc/X8iEfogbbkeCkCD-bJAhWn7TJO0.css?bu=AqUTohM&or=w", "content_type": "text/css; charset=utf-8"}
+{"kind": "response", "status": 200, "url": "https://r.bing.com/rb/39/cir3,cc,nc/aZ_dNpZax_-w4YYKgILn2vg_RDE.css?bu=AnF6&or=w", "content_type": "text/css; charset=utf-8"}
+{"kind": "response", "status": 200, "url": "https://r.bing.com/rp/iysYrSH0NhjubNeYYjuFO5bNpuk.br.js", "content_type": "text/javascript; charset=utf-8"}
+{"kind": "response", "status": 200, "url": "https://r.bing.com/rp/-HK_wurCJnF68lXHOBW9-_cGcfo.br.js", "content_type": "text/javascript; charset=utf-8"}
+{"kind": "response", "status": 200, "url": "https://r.bing.com/rp/Wg699zyhPTRTk1gWbE3612HI_OQ.br.js", "content_type": "text/javascript; charset=utf-8"}
+{"kind": "response", "status": 200, "url": "https://r.bing.com/rp/F6EpbzsOfGVQSB72kpTCV-vWR4k.br.js", "content_type": "text/javascript; charset=utf-8"}
+{"kind": "response", "status": 200, "url": "https://t.ssl.ak.dynamic.tiles.virtualearth.net/comp/ch/021230021?mkt=en-US&ur=us&it=G,LC,BX,RL&shading=hill&n=z&og=2857&cstl=rd&jp=0", "content_type": "image/jpeg"}
+{"kind": "request", "method": "GET", "url": "https://t0-traffic.tiles.virtualearth.net/comp/ch/0212300213123?it=Z,TF&n=z&key=Aq8ttSrhnH5pu0YZd22eosXEEz9VTk5Jtpqd-q_hifvDba3oeQ-jG7s06n5f_FNv"}
+{"kind": "request", "method": "GET", "url": "https://t0-traffic.tiles.virtualearth.net/comp/ch/0212300213301?it=Z,TF&n=z&key=Aq8ttSrhnH5pu0YZd22eosXEEz9VTk5Jtpqd-q_hifvDba3oeQ-jG7s06n5f_FNv"}
+{"kind": "request", "method": "GET", "url": "https://t0-traffic.tiles.virtualearth.net/comp/ch/0212300213303?it=Z,TF&n=z&key=Aq8ttSrhnH5pu0YZd22eosXEEz9VTk5Jtpqd-q_hifvDba3oeQ-jG7s06n5f_FNv"}
+{"kind": "request", "method": "GET", "url": "https://t0-traffic.tiles.virtualearth.net/comp/ch/0212300213321?it=Z,TF&n=z&key=Aq8ttSrhnH5pu0YZd22eosXEEz9VTk5Jtpqd-q_hifvDba3oeQ-jG7s06n5f_FNv"}
+{"kind": "request", "method": "GET", "url": "https://t0-traffic.tiles.virtualearth.net/comp/ch/0212300213132?it=Z,TF&n=z&key=Aq8ttSrhnH5pu0YZd22eosXEEz9VTk5Jtpqd-q_hifvDba3oeQ-jG7s06n5f_FNv"}
+{"kind": "request", "method": "GET", "url": "https://t0-traffic.tiles.virtualearth.net/comp/ch/0212300213310?it=Z,TF&n=z&key=Aq8ttSrhnH5pu0YZd22eosXEEz9VTk5Jtpqd-q_hifvDba3oeQ-jG7s06n5f_FNv"}
+{"kind": "request", "method": "GET", "url": "https://t0-traffic.tiles.virtualearth.net/comp/ch/0212300213312?it=Z,TF&n=z&key=Aq8ttSrhnH5pu0YZd22eosXEEz9VTk5Jtpqd-q_hifvDba3oeQ-jG7s06n5f_FNv"}
+{"kind": "request", "method": "GET", "url": "https://t0-traffic.tiles.virtualearth.net/comp/ch/0212300213330?it=Z,TF&n=z&key=Aq8ttSrhnH5pu0YZd22eosXEEz9VTk5Jtpqd-q_hifvDba3oeQ-jG7s06n5f_FNv"}
+{"kind": "request", "method": "GET", "url": "https://t0-traffic.tiles.virtualearth.net/comp/ch/0212300213133?it=Z,TF&n=z&key=Aq8ttSrhnH5pu0YZd22eosXEEz9VTk5Jtpqd-q_hifvDba3oeQ-jG7s06n5f_FNv"}
+{"kind": "request", "method": "GET", "url": "https://t0-traffic.tiles.virtualearth.net/comp/ch/0212300213311?it=Z,TF&n=z&key=Aq8ttSrhnH5pu0YZd22eosXEEz9VTk5Jtpqd-q_hifvDba3oeQ-jG7s06n5f_FNv"}
+{"kind": "request", "method": "GET", "url": "https://t0-traffic.tiles.virtualearth.net/comp/ch/0212300213313?it=Z,TF&n=z&key=Aq8ttSrhnH5pu0YZd22eosXEEz9VTk5Jtpqd-q_hifvDba3oeQ-jG7s06n5f_FNv"}
+{"kind": "request", "method": "GET", "url": "https://t0-traffic.tiles.virtualearth.net/comp/ch/0212300213331?it=Z,TF&n=z&key=Aq8ttSrhnH5pu0YZd22eosXEEz9VTk5Jtpqd-q_hifvDba3oeQ-jG7s06n5f_FNv"}
+{"kind": "request", "method": "GET", "url": "https://t0-traffic.tiles.virtualearth.net/comp/ch/0212300302022?it=Z,TF&n=z&key=Aq8ttSrhnH5pu0YZd22eosXEEz9VTk5Jtpqd-q_hifvDba3oeQ-jG7s06n5f_FNv"}
+{"kind": "request", "method": "GET", "url": "https://t0-traffic.tiles.virtualearth.net/comp/ch/0212300302200?it=Z,TF&n=z&key=Aq8ttSrhnH5pu0YZd22eosXEEz9VTk5Jtpqd-q_hifvDba3oeQ-jG7s06n5f_FNv"}
+{"kind": "request", "method": "GET", "url": "https://t0-traffic.tiles.virtualearth.net/comp/ch/0212300302202?it=Z,TF&n=z&key=Aq8ttSrhnH5pu0YZd22eosXEEz9VTk5Jtpqd-q_hifvDba3oeQ-jG7s06n5f_FNv"}
+{"kind": "request", "method": "GET", "url": "https://t0-traffic.tiles.virtualearth.net/comp/ch/0212300302220?it=Z,TF&n=z&key=Aq8ttSrhnH5pu0YZd22eosXEEz9VTk5Jtpqd-q_hifvDba3oeQ-jG7s06n5f_FNv"}
+{"kind": "request", "method": "GET", "url": "https://t0-traffic.tiles.virtualearth.net/comp/ch/0212300302023?it=Z,TF&n=z&key=Aq8ttSrhnH5pu0YZd22eosXEEz9VTk5Jtpqd-q_hifvDba3oeQ-jG7s06n5f_FNv"}
+{"kind": "request", "method": "GET", "url": "https://t0-traffic.tiles.virtualearth.net/comp/ch/0212300302201?it=Z,TF&n=z&key=Aq8ttSrhnH5pu0YZd22eosXEEz9VTk5Jtpqd-q_hifvDba3oeQ-jG7s06n5f_FNv"}
+{"kind": "request", "method": "GET", "url": "https://t0-traffic.tiles.virtualearth.net/comp/ch/0212300302203?it=Z,TF&n=z&key=Aq8ttSrhnH5pu0YZd22eosXEEz9VTk5Jtpqd-q_hifvDba3oeQ-jG7s06n5f_FNv"}
+{"kind": "request", "method": "GET", "url": "https://t0-traffic.tiles.virtualearth.net/comp/ch/0212300302221?it=Z,TF&n=z&key=Aq8ttSrhnH5pu0YZd22eosXEEz9VTk5Jtpqd-q_hifvDba3oeQ-jG7s06n5f_FNv"}
+{"kind": "request", "method": "GET", "url": "https://t0-traffic.tiles.virtualearth.net/comp/ch/0212300302032?it=Z,TF&n=z&key=Aq8ttSrhnH5pu0YZd22eosXEEz9VTk5Jtpqd-q_hifvDba3oeQ-jG7s06n5f_FNv"}
+{"kind": "request", "method": "GET", "url": "https://t0-traffic.tiles.virtualearth.net/comp/ch/0212300302210?it=Z,TF&n=z&key=Aq8ttSrhnH5pu0YZd22eosXEEz9VTk5Jtpqd-q_hifvDba3oeQ-jG7s06n5f_FNv"}
+{"kind": "request", "method": "GET", "url": "https://t0-traffic.tiles.virtualearth.net/comp/ch/0212300302212?it=Z,TF&n=z&key=Aq8ttSrhnH5pu0YZd22eosXEEz9VTk5Jtpqd-q_hifvDba3oeQ-jG7s06n5f_FNv"}
+{"kind": "request", "method": "GET", "url": "https://t0-traffic.tiles.virtualearth.net/comp/ch/0212300302230?it=Z,TF&n=z&key=Aq8ttSrhnH5pu0YZd22eosXEEz9VTk5Jtpqd-q_hifvDba3oeQ-jG7s06n5f_FNv"}
+{"kind": "response", "status": 200, "url": "https://t.ssl.ak.dynamic.tiles.virtualearth.net/comp/ch/021230030?mkt=en-US&ur=us&it=G,LC,BX,RL&shading=hill&n=z&og=2857&cstl=rd&jp=0", "content_type": "image/jpeg"}
+{"kind": "response", "status": 200, "url": "https://t.ssl.ak.dynamic.tiles.virtualearth.net/comp/ch/021230032?mkt=en-US&ur=us&it=G,LC,BX,RL&shading=hill&n=z&og=2857&cstl=rd&jp=0", "content_type": "image/jpeg"}
+{"kind": "response", "status": 200, "url": "https://t.ssl.ak.dynamic.tiles.virtualearth.net/comp/ch/020?mkt=en-US&ur=us&it=G,LC,BX,RL&shading=hill&n=z&og=2857&cstl=rd&jp=0", "content_type": "image/jpeg"}
+{"kind": "response", "status": 200, "url": "https://t.ssl.ak.dynamic.tiles.virtualearth.net/comp/ch/022?mkt=en-US&ur=us&it=G,LC,BX,RL&shading=hill&n=z&og=2857&cstl=rd&jp=0", "content_type": "image/jpeg"}
+{"kind": "response", "status": 200, "url": "https://t.ssl.ak.dynamic.tiles.virtualearth.net/comp/ch/023?mkt=en-US&ur=us&it=G,LC,BX,RL&shading=hill&n=z&og=2857&cstl=rd&jp=0", "content_type": "image/jpeg"}
+{"kind": "response", "status": 200, "url": "https://t.ssl.ak.dynamic.tiles.virtualearth.net/comp/ch/021?mkt=en-US&ur=us&it=G,LC,BX,RL&shading=hill&n=z&og=2857&cstl=rd&jp=0", "content_type": "image/jpeg"}
+{"kind": "response", "status": 200, "url": "https://t.ssl.ak.dynamic.tiles.virtualearth.net/comp/ch/021230023?mkt=en-US&ur=us&it=G,LC,BX,RL&shading=hill&n=z&og=2857&cstl=rd&jp=0", "content_type": "image/jpeg"}
+{"kind": "response", "status": 204, "url": "https://www.bing.com/fd/ls/lsp.aspx", "content_type": ""}
+{"kind": "response", "status": 200, "url": "https://t0-traffic.tiles.virtualearth.net/comp/ch/0212300213123?it=Z,TF&n=z&key=Aq8ttSrhnH5pu0YZd22eosXEEz9VTk5Jtpqd-q_hifvDba3oeQ-jG7s06n5f_FNv", "content_type": "image/png"}
+{"kind": "response", "status": 200, "url": "https://t0-traffic.tiles.virtualearth.net/comp/ch/0212300213321?it=Z,TF&n=z&key=Aq8ttSrhnH5pu0YZd22eosXEEz9VTk5Jtpqd-q_hifvDba3oeQ-jG7s06n5f_FNv", "content_type": "image/png"}
+{"kind": "response", "status": 200, "url": "https://t0-traffic.tiles.virtualearth.net/comp/ch/0212300213301?it=Z,TF&n=z&key=Aq8ttSrhnH5pu0YZd22eosXEEz9VTk5Jtpqd-q_hifvDba3oeQ-jG7s06n5f_FNv", "content_type": "image/png"}
+{"kind": "response", "status": 200, "url": "https://t0-traffic.tiles.virtualearth.net/comp/ch/0212300213303?it=Z,TF&n=z&key=Aq8ttSrhnH5pu0YZd22eosXEEz9VTk5Jtpqd-q_hifvDba3oeQ-jG7s06n5f_FNv", "content_type": "image/png"}
+{"kind": "response", "status": 200, "url": "https://t0-traffic.tiles.virtualearth.net/comp/ch/0212300213310?it=Z,TF&n=z&key=Aq8ttSrhnH5pu0YZd22eosXEEz9VTk5Jtpqd-q_hifvDba3oeQ-jG7s06n5f_FNv", "content_type": "image/png"}
+{"kind": "response", "status": 200, "url": "https://t0-traffic.tiles.virtualearth.net/comp/ch/0212300213132?it=Z,TF&n=z&key=Aq8ttSrhnH5pu0YZd22eosXEEz9VTk5Jtpqd-q_hifvDba3oeQ-jG7s06n5f_FNv", "content_type": "image/png"}
+{"kind": "response", "status": 200, "url": "https://t0-traffic.tiles.virtualearth.net/comp/ch/0212300213330?it=Z,TF&n=z&key=Aq8ttSrhnH5pu0YZd22eosXEEz9VTk5Jtpqd-q_hifvDba3oeQ-jG7s06n5f_FNv", "content_type": "image/png"}
+{"kind": "response", "status": 200, "url": "https://t0-traffic.tiles.virtualearth.net/comp/ch/0212300213313?it=Z,TF&n=z&key=Aq8ttSrhnH5pu0YZd22eosXEEz9VTk5Jtpqd-q_hifvDba3oeQ-jG7s06n5f_FNv", "content_type": "image/png"}
+{"kind": "response", "status": 200, "url": "https://t0-traffic.tiles.virtualearth.net/comp/ch/0212300213312?it=Z,TF&n=z&key=Aq8ttSrhnH5pu0YZd22eosXEEz9VTk5Jtpqd-q_hifvDba3oeQ-jG7s06n5f_FNv", "content_type": "image/png"}
+{"kind": "response", "status": 200, "url": "https://t0-traffic.tiles.virtualearth.net/comp/ch/0212300213331?it=Z,TF&n=z&key=Aq8ttSrhnH5pu0YZd22eosXEEz9VTk5Jtpqd-q_hifvDba3oeQ-jG7s06n5f_FNv", "content_type": "image/png"}
+{"kind": "response", "status": 200, "url": "https://t0-traffic.tiles.virtualearth.net/comp/ch/0212300302220?it=Z,TF&n=z&key=Aq8ttSrhnH5pu0YZd22eosXEEz9VTk5Jtpqd-q_hifvDba3oeQ-jG7s06n5f_FNv", "content_type": "image/png"}
+{"kind": "response", "status": 200, "url": "https://t0-traffic.tiles.virtualearth.net/comp/ch/0212300213311?it=Z,TF&n=z&key=Aq8ttSrhnH5pu0YZd22eosXEEz9VTk5Jtpqd-q_hifvDba3oeQ-jG7s06n5f_FNv", "content_type": "image/png"}
+{"kind": "response", "status": 200, "url": "https://t0-traffic.tiles.virtualearth.net/comp/ch/0212300302023?it=Z,TF&n=z&key=Aq8ttSrhnH5pu0YZd22eosXEEz9VTk5Jtpqd-q_hifvDba3oeQ-jG7s06n5f_FNv", "content_type": "image/png"}
+{"kind": "response", "status": 200, "url": "https://t0-traffic.tiles.virtualearth.net/comp/ch/0212300302200?it=Z,TF&n=z&key=Aq8ttSrhnH5pu0YZd22eosXEEz9VTk5Jtpqd-q_hifvDba3oeQ-jG7s06n5f_FNv", "content_type": "image/png"}
+{"kind": "response", "status": 200, "url": "https://t0-traffic.tiles.virtualearth.net/comp/ch/0212300302202?it=Z,TF&n=z&key=Aq8ttSrhnH5pu0YZd22eosXEEz9VTk5Jtpqd-q_hifvDba3oeQ-jG7s06n5f_FNv", "content_type": "image/png"}
+{"kind": "response", "status": 200, "url": "https://t0-traffic.tiles.virtualearth.net/comp/ch/0212300302022?it=Z,TF&n=z&key=Aq8ttSrhnH5pu0YZd22eosXEEz9VTk5Jtpqd-q_hifvDba3oeQ-jG7s06n5f_FNv", "content_type": "image/png"}
+{"kind": "response", "status": 200, "url": "https://t0-traffic.tiles.virtualearth.net/comp/ch/0212300302203?it=Z,TF&n=z&key=Aq8ttSrhnH5pu0YZd22eosXEEz9VTk5Jtpqd-q_hifvDba3oeQ-jG7s06n5f_FNv", "content_type": "image/png"}
+{"kind": "response", "status": 200, "url": "https://t0-traffic.tiles.virtualearth.net/comp/ch/0212300302230?it=Z,TF&n=z&key=Aq8ttSrhnH5pu0YZd22eosXEEz9VTk5Jtpqd-q_hifvDba3oeQ-jG7s06n5f_FNv", "content_type": "image/png"}
+{"kind": "response", "status": 200, "url": "https://t0-traffic.tiles.virtualearth.net/comp/ch/0212300302032?it=Z,TF&n=z&key=Aq8ttSrhnH5pu0YZd22eosXEEz9VTk5Jtpqd-q_hifvDba3oeQ-jG7s06n5f_FNv", "content_type": "image/png"}
+{"kind": "response", "status": 200, "url": "https://t0-traffic.tiles.virtualearth.net/comp/ch/0212300302201?it=Z,TF&n=z&key=Aq8ttSrhnH5pu0YZd22eosXEEz9VTk5Jtpqd-q_hifvDba3oeQ-jG7s06n5f_FNv", "content_type": "image/png"}
+{"kind": "response", "status": 200, "url": "https://t0-traffic.tiles.virtualearth.net/comp/ch/0212300213133?it=Z,TF&n=z&key=Aq8ttSrhnH5pu0YZd22eosXEEz9VTk5Jtpqd-q_hifvDba3oeQ-jG7s06n5f_FNv", "content_type": "image/png"}
+{"kind": "response", "status": 200, "url": "https://t0-traffic.tiles.virtualearth.net/comp/ch/0212300302210?it=Z,TF&n=z&key=Aq8ttSrhnH5pu0YZd22eosXEEz9VTk5Jtpqd-q_hifvDba3oeQ-jG7s06n5f_FNv", "content_type": "image/png"}
+{"kind": "response", "status": 200, "url": "https://t0-traffic.tiles.virtualearth.net/comp/ch/0212300302212?it=Z,TF&n=z&key=Aq8ttSrhnH5pu0YZd22eosXEEz9VTk5Jtpqd-q_hifvDba3oeQ-jG7s06n5f_FNv", "content_type": "image/png"}
+{"kind": "response", "status": 200, "url": "https://t0-traffic.tiles.virtualearth.net/comp/ch/0212300302221?it=Z,TF&n=z&key=Aq8ttSrhnH5pu0YZd22eosXEEz9VTk5Jtpqd-q_hifvDba3oeQ-jG7s06n5f_FNv", "content_type": "image/png"}
+{"kind": "request", "method": "POST", "url": "https://www.bing.com/fd/ls/lsp.aspx"}
+{"kind": "response", "status": 204, "url": "https://www.bing.com/fd/ls/lsp.aspx", "content_type": ""}
+{"kind": "request", "method": "GET", "url": "https://web.seattle.gov/Travelers/api/Map/Data?zoomId=13&type=1"}
+{"kind": "response", "status": 200, "url": "https://web.seattle.gov/Travelers/api/Map/Data?zoomId=13&type=1", "content_type": "application/json; charset=utf-8"}
+{"kind": "error", "select": "ddAlertNeighborhoods", "opt": "undefined", "err": "Page.select_option: Timeout 30000ms exceeded.\nCall log:\n  - waiting for locator(\"#ddAlertNeighborhoods\")\n    - locator resolved to <select class=\"form-control\" id=\"ddAlertNeighborhoods\">\u2026</select>\n  - attempting select option action\n    2 \u00d7 waiting for element to be visible and enabled\n      - element is not visible\n    - retrying select option action\n    - waiting 20ms\n    2 \u00d7 waiting for element to be visible and enabled\n      - element is not visible\n    - retrying select option action\n      - waiting 100ms\n    58 \u00d7 waiting for element to be visible and enabled\n       - element is not visible\n     - retrying select option action\n       - waiting 500ms\n"}
+{"kind": "request", "method": "GET", "url": "https://www.seattle.gov/transportation"}
+{"kind": "response", "status": 403, "url": "https://www.seattle.gov/transportation", "content_type": "text/html"}

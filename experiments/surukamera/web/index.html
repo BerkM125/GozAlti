@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>SuruKamera — Seattle Street Continuity</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="/static/vendor/maplibre-gl.css">
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<div id="root">
+  <aside id="rail-left">
+    <header>
+      <h1>SURU<span>KAMERA</span></h1>
+      <div class="sub">SEATTLE STREET CONTINUITY VIEWER</div>
+    </header>
+    <input id="street-search" type="search" placeholder="filter streets…" autocomplete="off">
+    <div id="street-list"></div>
+  </aside>
+
+  <main id="center">
+    <div id="map">
+      <button id="btn-sat" onclick="toggleSat()" title="toggle satellite basemap">SAT</button>
+    </div>
+    <div id="map-handle" title="drag to resize map"></div>
+    <div id="pairbar"></div>
+    <div id="viewport">
+      <div id="viewport-empty">SELECT A STREET</div>
+    </div>
+  </main>
+
+  <aside id="rail-right">
+    <div class="panel">
+      <div class="panel-title">PAIR DIAGNOSTICS</div>
+      <div id="diag-empty" class="dim">no pair selected</div>
+      <div id="diag" style="display:none">
+        <div class="diag-row"><span>relationship</span><b id="d-rel">—</b></div>
+        <div class="diag-row"><span>layout</span><b id="d-layout">—</b></div>
+        <div class="diag-row"><span>heading Δ</span><b id="d-hd">—</b></div>
+        <div class="diag-row"><span>gap</span><b id="d-gap">—</b></div>
+        <div class="diag-row"><span>continuity score</span><b id="d-score">—</b></div>
+        <div id="d-components"></div>
+        <div class="panel-title" style="margin-top:14px">DECISION</div>
+        <div id="d-reason" class="reason"></div>
+        <div class="panel-title" style="margin-top:14px">DIRECTION BASIS</div>
+        <div id="d-basis" class="reason"></div>
+        <div class="panel-title" style="margin-top:14px">PANES</div>
+        <div id="d-panes"></div>
+        <div class="panel-title" style="margin-top:14px">PTZ DRIFT</div>
+        <div id="d-ptz" class="reason">no drift detected</div>
+      </div>
+    </div>
+    <div class="panel" id="refresh-panel">
+      <div class="diag-row"><span>geometry refresh</span><b id="countdown">—</b></div>
+      <button id="btn-refresh">refresh now</button>
+      <div class="dim" style="margin-top:8px">
+        streams are live; snapshots are re-fetched at most once per 60 s per camera.
+        stacked panes are a spatial aid — snapshot panes are not simultaneous.
+      </div>
+      <div class="dim" style="margin-top:8px">
+        adjust: drag the seam / divider to resize panes · drag inside a feed
+        to pan · scroll to zoom · double-click to reset a feed.
+      </div>
+    </div>
+  </aside>
+</div>
+<script src="/static/vendor/maplibre-gl.js"></script>
+<script src="/static/vendor/hls.min.js"></script>
+<script src="/static/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,611 @@
+
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv='Content-Type' content='text/html; charset=utf-8' />
+    <meta http-equiv="Pragma" content="no-cache" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="ROBOTS" content="INDEX, NOFOLLOW" />
+    <meta name="Description" content="Get real-time traffic conditions on Seattle city streets and WSDOT freeways. Includes live camera images, road congestion, up-to-the-minute accident and construction information.  See sporting event traffic.  Plan fastest route and travel time via car or mass transit.  Sign up for alerts customized to your commute by map location, time, and type of alert." />
+    <meta name="Keywords" content="SDOT, SDOTTraffic, City of Seattle Department of Transportation,  Traffic,  Streaming  Video,  Alerts, Commute, Cameras" />
+    <title>SDOT Travelers Home Page</title>
+    <link href="/Travelers/Content/Css/bootstrap.css" rel="stylesheet"/>
+<link href="/Travelers/Content/Css/site.css" rel="stylesheet"/>
+<link href="/Travelers/Content/Css/justified-nav.css" rel="stylesheet"/>
+
+    <link href="//code.jquery.com/ui/1.10.4/themes/ui-lightness/jquery-ui.css" rel="stylesheet">
+    <script src="/Travelers/Scripts/modernizr-2.6.2.js"></script>
+
+
+    <script src="/Travelers/Scripts/jquery-1.10.2.js"></script>
+
+    <script src="/Travelers/Scripts/bootstrap.js"></script>
+<script src="/Travelers/Scripts/respond.js"></script>
+
+    <script src="/Travelers/Scripts/jquery.validate.js"></script>
+<script src="/Travelers/Scripts/jquery.validate.unobtrusive.js"></script>
+
+    <!--    <script type="text/javascript" src="//content.jwplatform.com/libraries/DFRTA8HH.js"></script> -->
+
+    <script type="text/javascript" src="//content.jwplatform.com/libraries/DFRTA8HH.js?exp=1786835058071&amp;sig=d8fb1cb4423123575e5586a936da6020"></script>
+
+    <script src="/Travelers/js/alerts.js"></script>
+<script src="/Travelers/js/bridge.js"></script>
+<script src="/Travelers/js/browser.js"></script>
+<script src="/Travelers/js/camera.video.js"></script>
+<script src="/Travelers/js/config.js"></script>
+<script src="/Travelers/js/dms.js"></script>
+<script src="/Travelers/js/rrc.js"></script>
+<script src="/Travelers/js/traveltime.js"></script>
+<script src="/Travelers/js/user.js"></script>
+<script src="/Travelers/js/utils.js"></script>
+<script src="/Travelers/js/view.index.js"></script>
+<script src="/Travelers/js/view.login.js"></script>
+<script src="/Travelers/js/view.mapcontrol.js"></script>
+<script src="/Travelers/js/view.mapmain.js"></script>
+<script src="/Travelers/js/view.setup.js"></script>
+
+
+    <script src="//code.jquery.com/ui/1.10.4/jquery-ui.js"></script>
+    
+
+</head>
+<body>
+    <div class="container-fluid">
+        <div class="row hidden-sm hidden-xs">
+            <div class="col-md-12">
+<noindex>
+  
+  <script language="javascript">
+function CityHeader_DoSearch()
+{
+	var q = document.getElementById('q');
+	if (q != null)
+	{
+ 		//window.location = '//find.seattle.gov/search?q=' + q.value + '&site=default_collection&client=cos_frontend&proxystylesheet=cos_frontend&output=xml_no_dtd';
+        window.location = '//www.seattle.gov/searchresults?terms=' + q.value;
+        return false;
+	}
+}
+
+</script> 
+<style>
+  #seattleGovHeader a.logohome, .logohome {
+  margin-top: 20px;
+  font-family: 'Seattle Text';
+  margin-left: 4px;
+  font-weight: bold;
+  font-size: 21px;
+  color: #fff;
+  display: block;
+  text-decoration: none;
+  }
+  .logohome:hover, .logohome:visited, #seattleGovHeader button {
+  color: #fff;
+  }
+    .logohome:before {
+        height: 42px;
+        width: 42px;
+        content: '';
+        display: inline-block;
+        float: left;
+        margin-top: -14px;
+        margin-right: 10px;
+        background: #fff url('//www.seattle.gov/images/2015_IMG/logoHome.png');
+        background-size: contain;
+        border-radius: 25px;
+        border: 1px solid #fff;
+    }
+.logohome span {
+    margin-top: -26px;
+    position: absolute;
+    top: 38px;
+}
+
+  #seattleGovHeader button {
+  background-color: transparent;
+  border: none;
+  font-weight: bold;
+  font-size: 16px;
+  }
+  #seattleGovHeader #citySearch input {
+  height:22px;line-height:20px;width:190px;
+  }
+  .logohome:hover {
+  text-decoration: underline;
+  }
+  image:focus {-moz-outline-style: none;}
+  #cityNav a{color:#fff;font-family:Arial,Helvetica;font-size:14px;text-decoration:none;font-weight:bold}
+</style>
+<div id="seattleGovHeader" style="display:block;position:relative;margin:0px auto;top:0px;width:100%;height:60px;background-color:#003DA5">  
+  <div style="position:absolute;top:0px;left:20px;"><a href="//www.seattle.gov" target="_blank" class="logohome"><span>Seattle.gov</span></a></div>
+  <div id="citySearch" style="width:300px;position:absolute;top:18px;right:20px;text-align:right">
+		<input type="text" id="q" name="q" size="18" maxlength="255" value="" />
+    <button onclick="CityHeader_DoSearch()">GO</button>
+  </div>
+</div>  
+</noindex>
+
+            </div>
+        </div>
+        <div class="row hidden-md  hidden-lg">
+            <div class="col-md-12">
+<noindex>
+  
+
+<style>
+  #seattleGovHeader a.logohome, .logohome {
+  margin-top: 20px;
+  font-family: 'Seattle Text';
+  margin-left: 4px;
+  font-weight: bold;
+  font-size: 21px;
+  color: #fff;
+  display: block;
+  text-decoration: none;
+  }
+  .logohome:hover, .logohome:visited, #seattleGovHeader button {
+  color: #fff;
+  }
+    .logohome:before {
+        height: 42px;
+        width: 42px;
+        content: '';
+        display: inline-block;
+        float: left;
+        margin-top: -14px;
+        margin-right: 10px;
+        background: #fff url('//www.seattle.gov/images/2015_IMG/logoHome.png');
+        background-size: contain;
+        border-radius: 25px;
+        border: 1px solid #fff;
+    }
+.logohome span {
+    margin-top: -26px;
+    position: absolute;
+    top: 38px;
+}
+
+  #seattleGovHeader button {
+  background-color: transparent;
+  border: none;
+  font-weight: bold;
+  font-size: 16px;
+  }
+  #seattleGovHeader #citySearch input {
+  height:22px;line-height:20px;width:190px;
+  }
+  .logohome:hover {
+  text-decoration: underline;
+  }
+  image:focus {-moz-outline-style: none;}
+  #cityNav a{color:#fff;font-family:Arial,Helvetica;font-size:14px;text-decoration:none;font-weight:bold}
+</style>
+<div id="seattleGovHeader" style="display:block;position:relative;margin:0px auto;top:0px;width:100%;height:60px;background-color:#003DA5">  
+  <div style="position:absolute;top:0px;left:20px;"><a href="//www.seattle.gov/default.htm" target="_blank" class="logohome"><span>Seattle.gov</span></a></div>
+</div>  
+</noindex>
+
+            </div>
+        </div>
+
+
+
+        <div class="row hidden-sm hidden-xs">
+            <div class="col-md-12">
+<style>
+
+    #deptTitle a {
+        font-family: 'Seattle Text', Arial;
+        font-weight: bold;
+        color: #000;
+    }
+
+    div#deptTitle, div#deptTitle a {
+        font-size: 20px;
+        margin-top: 5px;
+        margin-left: 5px;
+        line-height: 1.1;
+        font-family: 'Seattle Text', Arial;
+        text-decoration: none;
+    }
+
+    div#deptTitle {
+        padding-bottom: 5px;
+    }
+
+    body.mac.notFF #deptTitle {
+        margin-top: 5px;
+    }
+
+    a.deptHeadNavLink {
+        font-size: 12px;
+        color: #333;
+        font-weight: 700;
+        text-decoration: none;
+    }
+
+    a.deptHeadNavLink :hover {
+        text-decoration: underline;
+    }
+    .director {
+        color: #666;
+        font-size: 14px;
+        margin-left: 10px;
+    }
+</style>
+
+
+<table align="left" border="0" cellpadding="0" cellspacing="0" bgcolor="#ffffff">
+    <tr>
+        <td width="100%">
+            <div id="deptTitle">
+                <a href="//www.seattle.gov/transportation" title="Department of Transportation Home Page">Department of Transportation</a>
+                
+            </div>
+        </td>
+        
+    </tr>
+</table>
+
+
+            </div>
+        </div>
+
+        <div class="row hidden-xs hidden-md  hidden-lg">
+            <div class="col-md-12">
+<style>
+    #deptTitle a {
+        font-family: 'Seattle Text', Arial;
+        font-weight: bold;
+        color: #000;
+    }
+
+    div#deptTitle, div#deptTitle a {
+        font-size: 20px;
+        margin-top: 5px;
+        margin-left: 5px;
+        line-height: 1.1;
+        font-family: 'Seattle Text', Arial;
+        text-decoration: none;
+    }
+
+    div#deptTitle {
+        padding-bottom: 5px;
+    }
+
+    body.mac.notFF #deptTitle {
+        margin-top: 5px;
+    }
+
+    a.deptHeadNavLink {
+        font-size: 12px;
+        color: #333;
+        font-weight: 700;
+        text-decoration: none;
+    }
+
+        a.deptHeadNavLink :hover {
+            text-decoration: underline;
+        }
+
+    .director {
+        color: #666;
+        font-size: 14px;
+        margin-left: 10px;
+    }
+</style>
+
+
+<table align="left" border="0" cellpadding="0" cellspacing="0" bgcolor="#ffffff">
+    <tr>
+        <td width="100%">
+            <div id="deptTitle">
+                <a href="//www.seattle.gov/transportation" title="Department of Transportation Home Page">Dept. of Transportation</a>
+                
+            </div>
+        </td>
+        
+    </tr>
+</table>
+
+
+            </div>
+        </div>
+
+        <div class="row hidden-sm hidden-md  hidden-lg">
+            <div class="col-md-12">
+<style>
+    #deptTitle a {
+        font-family: 'Seattle Text', Arial;
+        font-weight: bold;
+        color: #000;
+    }
+
+    div#deptTitle, div#deptTitle a {
+        font-size: 20px;
+        margin-top: 5px;
+        margin-left: 5px;
+        line-height: 1.1;
+        font-family: 'Seattle Text', Arial;
+        text-decoration: none;
+    }
+
+    div#deptTitle {
+        padding-bottom: 5px;
+    }
+
+    body.mac.notFF #deptTitle {
+        margin-top: 5px;
+    }
+
+    a.deptHeadNavLink {
+        font-size: 12px;
+        color: #333;
+        font-weight: 700;
+        text-decoration: none;
+    }
+
+        a.deptHeadNavLink :hover {
+            text-decoration: underline;
+        }
+
+    .director {
+        color: #666;
+        font-size: 14px;
+        margin-left: 10px;
+    }
+</style>
+
+
+<table align="left" border="0" cellpadding="0" cellspacing="0" bgcolor="#ffffff">
+    <tr>
+        <td width="100%">
+            <div id="deptTitle">
+                <a href="//www.seattle.gov/transportation" title="Department of Transportation Home Page">SDOT</a>
+                
+            </div>
+        </td>
+        
+    </tr>
+</table>
+
+
+            </div>
+        </div>
+
+    </div>
+    <div class="container-fluid" style="height:100%;">
+        
+
+<div id="indexMain" class="row" style="height:100%;">
+    <div class="col-xs-12" style="height: 100%; ">
+        <div class="col-xs-12" style="height: 100%;">
+            <div id="greeting-text" class="row hidden-sm hidden-xs"></div>
+            
+            <!-- Left Menu section for map controls-->
+<img src="/Travelers/Content/Images/btn-vert-map-show-hide.png" class="map-control-toggle-button" id="imgShowHideMapControl" />
+<div id="map-control">
+    <div class="panel-group" id="accordion">
+        <div class="panel panel-default">
+            <button type="button" class="map-control-button btn btn-xs btn-default collapsed" data-toggle="collapse" data-parent="#accordion" data-target="#map-legend">Map Legend</button>
+            <div id="map-legend" class="panel-collapse collapse"> 
+                
+                
+                <div class="checkbox">                                                
+                    <label><input type="checkbox" value="" id="check-alerts" name="check-alerts"><img id="img-incidents" width="25" height="27"> Incidents <img id="img-events" width="25" height="27"> Events</label>                 
+                </div>
+                <div class="checkbox">
+                    <label><input type="checkbox" value="" id="check-travel-times" name="check-travel-times"><img id="img-travel-times" width="25" height="27"> Travel Times</label>                   
+                </div>
+                <div class="checkbox">
+                    <label><input type="checkbox" value="" id="check-cameras" name="check-cameras"><img id="img-cameras" width="25" height="27"> Cameras</label>                   
+                </div>
+                <div class="checkbox">
+                    <label><input type="checkbox" value="" id="check-dms-signs-on" name="check-dms-signs-on"><img id="img-dms-signs-on" width="25" height="27"> DMS Signs(on)</label>                    
+                </div>
+                <div class="checkbox">
+                    <label><input type="checkbox" value="" id="check-dms-signs-off" name="check-dms-signs-off"><img id="img-dms-signs-off" width="25" height="27"> DMS Signs(off)</label>
+                </div>
+                <div class="checkbox">
+                    <label><input type="checkbox" value="" id="check-bridges-open" name="check-bridges-open"><img id="img-bridges-open" width="25" height="27"> Bridges(up)</label>                   
+                </div>
+                <div class="checkbox">
+                    <label><input type="checkbox" value="" id="check-bridges-closed" name="check-bridges-closed"><img id="img-bridges-closed" width="25" height="27"> Bridges(down)</label>
+                </div>
+                <div class="checkbox">
+                    <label><input type="checkbox" value="" id="check-rrcrossings-open" name="check-rrcrossings-open"><img id="img-rrcrossings-open" width="25" height="27"> RR Xing(open)</label>                
+                </div>
+                <div class="checkbox">
+                    <label><input type="checkbox" value="" id="check-rrcrossings-closed" name="check-rrcrossings-closed"><img id="img-rrcrossings-closed" width="25" height="27"> RR Xing(closed)</label>
+                </div>
+                <div class="checkbox">
+                    <label><input type="checkbox" value="" id="check-congestion" name="check-congestion"><img id="img-congestion" width="25" height="27"> Traffic</label>                  
+                </div>
+                <div class="checkbox">
+                    <label><input type="checkbox" value="" id="check-neighborhoods" name="check-neighborhoods"><img id="img-neighborhoods" width="25" height="27"> Neighborhoods</label>
+                </div>
+            </div>
+        </div>
+        <div class="panel panel-default">
+            <button type="button" class="map-control-button btn btn-xs btn-default collapsed" data-toggle="collapse" data-parent="#accordion" data-target="#collapse2">Incidents &amp; Events</button>
+            <div id="collapse2" class="panel-collapse collapse">
+                <div class="panel-body">
+                    <select id="ddAlertNeighborhoods" class="form-control" style="font-size:x-small;height:30px;"></select>
+                    <div id="alertNeighborhoodItems" class="panel panel-default pre-scrollable" style="max-height: 200px; font-size: x-small; overflow-y: auto;">Please Select Neighborhood</div>
+                </div>
+            </div>
+        </div>
+        <div class="panel panel-default">
+            <button type="button" class="map-control-button btn btn-xs btn-default collapsed" data-toggle="collapse" data-parent="#accordion" data-target="#collapse3">Travel Times</button>
+            <div id="collapse3" class="panel-collapse collapse">
+                <div class="panel-body">
+                    <select id="ddTravelTimeNeighborhoods" class="form-control" style="font-size: x-small; height: 30px;"></select>
+                    <div id="travelTimeNeighborhoodItems" class="panel panel-default pre-scrollable" style="max-height: 200px; font-size: x-small; overflow-y: auto; ">Please Select Neighborhood</div>
+                </div>
+            </div>
+        </div>
+        <div class="panel panel-default">
+            <button type="button" class="map-control-button btn btn-xs btn-default collapsed" data-toggle="collapse" data-parent="#accordion" data-target="#collapse4">Camera List</button>
+            <div id="collapse4" class="panel-collapse collapse">
+                <div class="panel-body">
+                    <select id="ddCameraNeighborhoods" class="form-control" style="font-size: x-small; height: 30px;"></select>
+                    <div id="cameraNeighborhoodItems" class="panel panel-default pre-scrollable" style="max-height: 200px; font-size: x-small; overflow-y: auto; ">Please Select Neighborhood</div>
+                </div>
+            </div>
+        </div>
+        
+
+        <div class="panel panel-default" id="my-favorites-items">
+            <button type="button" class="map-control-button btn btn-xs btn-default collapsed" data-toggle="collapse" data-parent="#accordion" data-target="#collapse6">My Favorites</button>
+            <div id="collapse6" class="panel-collapse collapse">
+                <div class="panel-body">
+                    <select id="ddMyFavoriteCategories" class="form-control" style="font-size: x-small; height: 30px;">
+                        <option>Select a Category</option>
+                        <option>Bridges</option>
+                        <option>Cameras</option>
+                        <option>Commutes</option>
+                        <option>RR Xing</option>
+                    </select>
+                    <div id="myFavoriteCategoryItems" class="pre-scrollable" style="max-height: 200px; font-size: x-small; overflow-y: auto;"></div>
+                </div>
+               
+            </div>
+        </div>
+
+        <div class="panel panel-default">
+            <button type="button" class="map-control-button btn btn-xs btn-default collapsed" data-toggle="collapse" data-parent="#accordion" data-target="#collapse7">Find It!</button>
+            <div id="collapse7" class="panel-collapse collapse">
+                <div class="panel-body">
+                    <div class="input-group">
+                        <input type="text" name="input-zoom-to" placeholder="Zoom To..." class="form-control input-sm" id="input-zoom-to" style="font-size:x-small;">
+                        <span class="input-group-btn">
+                            <button id="btn-zoom-to" class="btn btn-sm" type="button">Go</button>
+                        </span>                        
+                    </div>
+                    <div class="find-it-clear" id="btn-findit-clear">Clear</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="panel panel-default">
+            <button type="button" id="site-help" class="map-control-button btn btn-xs btn-default collapsed" data-toggle="collapse" data-parent="#accordion" data-target="#collapse8">Help</button>
+            <div id="collapse8" class="panel-collapse collapse"></div>
+        </div>
+    </div>
+</div>
+
+<script type="text/html" id="districtsTemplate">
+    <option value="">Select a Neighborhood</option>{NeighborhoodOptions}
+</script>
+
+<script type="text/html" id="templateDropdownItem">
+    <ul class="list-group"><li class="list-group-item" style="padding-top: 2px; padding-bottom: 2px;">{Text}</li></ul>
+</script>
+
+            <!--Map controls section end-->
+            <!--Map area-->
+<div id='mapDiv' class="map">
+</div>
+
+<img id="traffic-legend" src="content/images/bing_traffic_legend.png" />
+<div id="popup-carousel" class="carousel slide " data-ride="carousel" style="max-width: 380px; width:90%" data-interval="false" data-wrap="false" data-type="">
+    <!-- Wrapper for slides -->
+    <div class="carousel-inner" role="listbox">
+        <div class="item active"></div>
+    </div>
+
+    <!-- Left and right controls -->
+    <a class="left carousel-control" href="#popup-carousel" role="button" data-slide="prev">
+        <span class="glyphicon glyphicon-chevron-left" aria-hidden="true"></span>
+        <span class="sr-only">Previous</span>
+    </a>
+    <a class="right carousel-control" href="#popup-carousel" role="button" data-slide="next">
+        <span class="glyphicon glyphicon-chevron-right" aria-hidden="true"></span>
+        <span class="sr-only">Next</span>
+    </a>
+</div>
+
+<script type='text/javascript'>
+    function loadMap() {
+        var profile = user.config.profile;
+
+        if (mapmain.config.mapKey == null) {
+            mapmain.config.mapKey = utils.getMapKey();
+        }
+
+        mapmain.config.map = new Microsoft.Maps.Map(document.getElementById("mapDiv"),
+                           {
+                               credentials: mapmain.config.mapKey,
+                               center: new Microsoft.Maps.Location(profile.userProfile.location.lat, profile.userProfile.location.lng),
+                               mapTypeId: Microsoft.Maps.MapTypeId.road,
+                               showDashboard: false,
+                               showMapTypeSelector: false,
+                               showScalebar: false,
+                               enableSearchLogo: false,
+                               showCopyright: true,
+                               showLogo: false,
+                               zoom: profile.userProfile.zoom
+                           });
+
+        mapmain.init(profile);
+       
+    }
+</script>
+
+
+<script type='text/javascript' src='//www.bing.com/api/maps/mapcontrol?callback=loadMap' async defer></script>
+
+            <!--Main map end-->
+            <!--Help area-->
+            <div id="help-section"></div>
+            <!--Help area end-->
+    </div>
+</div>
+
+<input type="hidden" value='/Travelers' id="site-app-path" />
+
+<div class="save-result-outer" id="profile-save-result1">
+    <div class="save-result-inner">Data Saved!..</div>
+</div>
+        <div class="row hidden-sm hidden-xs">
+            <footer>
+<table style="width:100%; text-align:center; border: none" border="0" cellpadding="0" cellspacing="0">
+   <tr>
+      <td valign="top">
+         <table style="width: 100%; text-align: center; background-color: #003da5; border: none" border="0" cellpadding="5" cellspacing="0">
+            <tr>
+                <td  align="center">
+                    <a href="//www.seattle.gov/transportation" style="color: white;">SDOT Home</a> | <a href="//www.seattle.gov/transportation/about-sdot/contact-us" style="color: white;">Contact</a> | <a href="//www.seattle.gov/transportation/getting-around" style="color: white;">Getting Around Seattle</a> | <a href="//www.seattle.gov/transportation/about-sdot/faqs" style="color: white;">FAQs</a> | <a href="//www.seattle.gov/tech/initiatives/privacy/about-the-privacy-program" style="color: white;">Privacy Policy</a>
+                </td>
+            </tr>
+         </table>
+      </td>
+   </tr>
+</table>
+
+            </footer>
+        </div>
+        <div class="row hidden-md  hidden-lg">
+            <footer>
+<table style="width:100%; text-align:center; border: none" border="0" cellpadding="0" cellspacing="0">
+   <tr>
+      <td valign="top">
+         <table style="width: 100%; text-align: center; background-color: #003da5; border: none" border="0" cellpadding="5" cellspacing="0">
+            <tr>
+               <td align="center">
+                   <a href="//www.seattle.gov/transportation" style="color: white;">SDOT Home</a> | <a href="//www.seattle.gov/transportation/about-sdot/contact-us" style="color: white;">Contact</a> | <a href="//www.seattle.gov/tech/initiatives/privacy/about-the-privacy-program" style="color: white;">Privacy Policy</a>
+               </td>
+            </tr>
+         </table>
+      </td>
+   </tr>
+</table>
+
+            </footer>
+        </div>
+    </div>
+</body>
+</html>
