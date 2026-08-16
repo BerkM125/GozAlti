@@ -27,15 +27,35 @@ from urllib.parse import urlparse, parse_qs
 
 HERE = Path(__file__).resolve().parent
 
-# The only axis we label. "no_sidewalk" is kept separate from "blocked" because they are
-# different facts: one is a permanent property of the street (and SDOT already publishes
-# it), the other is a transient condition only a camera can see. See ../SPEC.md.
+# WHAT WE MEAN BY "THE PEDESTRIAN PATH"
+#
+# The surface someone on foot would use to get through this block: the sidewalk if one
+# exists, the crosswalk where a route crosses, the shoulder if there is no sidewalk.
+# NOT the roadway. A tree down across the road blocks cars, not walkers — that is `clear`
+# for our purposes, because we route people on foot.
+#
+# "Blocked" means you would have to LEAVE that surface: step into traffic or turn back.
+# It is a statement about physical passability, never about danger. The moment `blocked`
+# starts meaning "unsafe" we have broken the rule that is our differentiator (SPEC §7.10).
+#
+# `no_sidewalk` is kept separate from `blocked` because they are different kinds of fact:
+# one is a permanent property of the street that SDOT already publishes (3,148 downtown
+# segments in sidewalks.geojson), the other is a transient condition only a camera sees.
+RUBRIC = [
+    "Judge the PEDESTRIAN surface only — sidewalk, crosswalk, or shoulder. Not the roadway.",
+    "Road blocked but sidewalk fine = clear. We route people, not cars.",
+    "A blocked crosswalk counts: it is part of the walking path.",
+    "Construction present but the path is open = clear. Construction is a separate flag.",
+    "Several sidewalks in frame? Judge the nearest / most prominent. If you truly cannot pick, unclear.",
+    "Blocked is about passability, never danger. Do not label how a place feels.",
+]
+
 CHOICES = [
-    ("clear", "1", "a walkable path exists and nothing is on it"),
-    ("narrowed", "2", "path exists but something takes up part of it"),
-    ("blocked", "3", "path exists but you could not walk through"),
-    ("no_sidewalk", "4", "no pedestrian path here at all (ramp, shoulder, freeway)"),
-    ("unclear", "5", "cannot tell from this frame — too dark, too far, obscured"),
+    ("clear", "1", "walk through normally, no deviation"),
+    ("narrowed", "2", "you get through but squeezed — scaffolding, a car half on the walk, cones"),
+    ("blocked", "3", "cannot get through on foot; must enter the roadway or turn back"),
+    ("no_sidewalk", "4", "no pedestrian surface exists at all — ramp, shoulder, freeway"),
+    ("unclear", "5", "too dark, too far or too obscured to judge"),
 ]
 VALID = {c for c, _, _ in CHOICES}
 
@@ -84,6 +104,10 @@ kbd{font:10px var(--mono);background:var(--line);border-radius:3px;padding:1px 5
 .nav{display:flex;gap:8px;margin-top:8px;align-items:center;font:11px var(--mono);color:var(--dim)}
 .nav button{flex:0 0 auto}
 .done{color:var(--go)}
+.rubric{margin-top:8px;background:var(--card);border:1px solid var(--line);border-radius:4px;padding:8px 12px}
+.rubric summary{font:11px var(--mono);color:var(--go);cursor:pointer;letter-spacing:.06em;text-transform:uppercase}
+.rubric ul{margin:8px 0 2px 16px;font:11.5px var(--mono);color:var(--dim);line-height:1.75}
+.rubric li{margin-bottom:3px}
 </style>
 <div class=bar>
   <h1>label <span>/ walkway</span></h1>
@@ -97,7 +121,9 @@ kbd{font:10px var(--mono);background:var(--line);border-radius:3px;padding:1px 5
   <button onclick="go(-1)">&larr; prev</button>
   <button onclick="go(1)">next &rarr;</button>
   <span>a keypress saves and advances &middot; revisit any frame to change its label</span>
+  <button onclick="document.getElementById('rub').open=!document.getElementById('rub').open">rubric</button>
 </div>
+<details id=rub class=rubric><summary>what counts as the pedestrian path</summary><ul>__RUBRIC__</ul></details>
 <script>
 const CH = __CHOICES__;
 let F = [], L = {}, i = 0;
@@ -131,6 +157,7 @@ function go(d){ i = Math.max(0, Math.min(F.length-1, i+d)); draw(); }
 addEventListener('keydown', e => {
   if (e.key === 'ArrowRight') return go(1);
   if (e.key === 'ArrowLeft') return go(-1);
+  if (e.key === '?') { const r=document.getElementById('rub'); r.open=!r.open; return; }
   const c = CH.find(c => c[1] === e.key); if (c) pick(c[0]);
 });
 boot();
@@ -206,7 +233,8 @@ def make_handler(fs, labels_path):
                 else:
                     self.send_error(404)
                 return
-            page = PAGE.replace("__CHOICES__", json.dumps(CHOICES))
+            page = (PAGE.replace("__CHOICES__", json.dumps(CHOICES))
+                .replace("__RUBRIC__", "".join(f"<li>{html.escape(r)}</li>" for r in RUBRIC)))
             self._send(200, "text/html; charset=utf-8", page.encode())
 
         def do_POST(self):
