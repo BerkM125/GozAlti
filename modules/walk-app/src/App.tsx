@@ -234,7 +234,13 @@ export default function App() {
     (async () => {
       try {
         const pair = await fetchPath(origin, dest);
-        if (cancelled) return;
+        if (cancelled) {
+          // This trip was superseded before the answer landed, so nothing
+          // will ever poll (or stop) the live session it just started - stop
+          // it here or it ticks CV server-side until the 180 s TTL.
+          if (!isUnavailable(pair)) stopLivePath(pair.safer.path_id);
+          return;
+        }
         if (!isUnavailable(pair)) {
           setPathPair(pair);
           setResult(null);
@@ -290,9 +296,16 @@ export default function App() {
         );
       }
     }, 2000);
+    // React cleanup never runs on a refresh/close, so the session would keep
+    // ticking CV server-side for the 180 s TTL. pagehide fires on refresh,
+    // close, and bfcache navigation; stopLivePath's keepalive DELETE survives
+    // the page teardown.
+    const onPageHide = () => stopLivePath(livePathId);
+    window.addEventListener("pagehide", onPageHide);
     return () => {
       stopped = true;
       clearInterval(t);
+      window.removeEventListener("pagehide", onPageHide);
       stopLivePath(livePathId);
     };
     // Keyed on the trip, not the PathObject: a version bump replaces the

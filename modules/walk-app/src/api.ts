@@ -76,13 +76,29 @@ async function fetchOnePath(
  * throws RouteError when the router answered but the trip is unroutable.
  */
 export async function fetchPath(origin: LngLat, dest: LngLat): Promise<PathPair | Unavailable> {
-  const [safer, shortest] = await Promise.all([
+  const [saferRes, shortestRes] = await Promise.allSettled([
     fetchOnePath(origin, dest, "safer"),
     fetchOnePath(origin, dest, "shortest"),
   ]);
-  if (isUnavailable(safer)) return safer;
-  if (isUnavailable(shortest)) return shortest;
-  return { safer, shortest };
+  // The safer call started a PathLiveSession upstream the moment it resolved.
+  // On every exit that does not hand that session to the caller, stop it -
+  // otherwise it ticks CV server-side for the full 180 s TTL with no reader.
+  const saferPath =
+    saferRes.status === "fulfilled" && !isUnavailable(saferRes.value) ? saferRes.value : null;
+  const abandonSafer = () => {
+    if (saferPath) stopLivePath(saferPath.path_id);
+  };
+  if (saferRes.status === "rejected") throw saferRes.reason;
+  if (shortestRes.status === "rejected") {
+    abandonSafer();
+    throw shortestRes.reason;
+  }
+  if (isUnavailable(saferRes.value)) return saferRes.value;
+  if (isUnavailable(shortestRes.value)) {
+    abandonSafer();
+    return shortestRes.value;
+  }
+  return { safer: saferRes.value, shortest: shortestRes.value };
 }
 
 /**
@@ -110,11 +126,14 @@ export async function fetchLivePath(
 
 /**
  * Fire-and-forget session stop. Failure is fine: the server expires the
- * session 180 s after the last poll anyway.
+ * session 180 s after the last poll anyway. `keepalive` lets the DELETE
+ * survive a page refresh/close - without it the browser cancels the request
+ * and the session keeps ticking CV server-side for the full 180 s TTL.
  */
 export function stopLivePath(pathId: string): void {
   fetch(`${API_BASE}/api/path/live/${encodeURIComponent(pathId)}`, {
     method: "DELETE",
+    keepalive: true,
     signal: AbortSignal.timeout(5000),
   }).catch(() => {});
 }
