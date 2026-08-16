@@ -26,7 +26,7 @@ import {
   RouteError,
   stopLivePath,
 } from "./api.ts";
-import { cvResultFeatures, placedCount, type CvFeature } from "./cvObjects.ts";
+import { cvResultFeatures, placedCount, placedCounts, type CvFeature } from "./cvObjects.ts";
 import {
   CENTER,
   NEARBY_CAMERA_LIMIT,
@@ -139,13 +139,24 @@ export default function App() {
   // route is up, so already-rendered cars/people never blink out between
   // passes. Cleared only when the trip itself is cleared.
   const cvStore = useRef<Record<string, CvFeature[]>>({});
+  const cvCountsRef = useRef<Record<string, { people: number; vehicles: number }>>({});
   const [cvObjects, setCvObjects] = useState<FeatureCollection>(EMPTY_FC);
+  /** People/vehicles actually placed on the map, so the dock can say the
+   *  objects exist without the user having to hunt for them at zoom. */
+  const [cvTally, setCvTally] = useState({ people: 0, vehicles: 0, cameras: 0 });
   const ingestCv = useCallback((res: CvResult) => {
     if (!res?.ok || !res.camera_id) return;
     cvStore.current[res.camera_id] = cvResultFeatures(res);
+    cvCountsRef.current[res.camera_id] = placedCounts(res);
     setCvObjects({
       type: "FeatureCollection",
       features: Object.values(cvStore.current).flat(),
+    });
+    const per = Object.values(cvCountsRef.current);
+    setCvTally({
+      people: per.reduce((n, c) => n + c.people, 0),
+      vehicles: per.reduce((n, c) => n + c.vehicles, 0),
+      cameras: per.filter((c) => c.people + c.vehicles > 0).length,
     });
   }, []);
   /** Bumping this cancels any in-flight en-route CV pass. */
@@ -153,7 +164,9 @@ export default function App() {
   const clearCv = useCallback(() => {
     cvPassToken.current += 1;
     cvStore.current = {};
+    cvCountsRef.current = {};
     setCvObjects(EMPTY_FC);
+    setCvTally({ people: 0, vehicles: 0, cameras: 0 });
   }, []);
 
   const [panel, setPanel] = useState<Panel>(null);
@@ -826,6 +839,14 @@ export default function App() {
                 {pathPair.safer.refuges_en_route.length} open business
                 {pathPair.safer.refuges_en_route.length === 1 ? "" : "es"} along the way — the
                 green dots.
+              </p>
+            )}
+            {cvTally.people + cvTally.vehicles > 0 && (
+              <p className="hint">
+                Cameras see {cvTally.people}{" "}
+                {cvTally.people === 1 ? "person" : "people"} · {cvTally.vehicles}{" "}
+                {cvTally.vehicles === 1 ? "vehicle" : "vehicles"} on this route, drawn on the
+                map ({cvTally.cameras} camera{cvTally.cameras === 1 ? "" : "s"}, local CV).
               </p>
             )}
             {!pfSegment && <p className="hint">Tap the route to see what shaped each block.</p>}

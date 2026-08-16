@@ -9,7 +9,7 @@
  * (only the visual shape/scale is styled here), and a detection without a
  * world-position estimate (`est: null`) is never drawn - no invented spots.
  */
-import type { Feature, Polygon } from "geojson";
+import type { Feature, Point, Polygon } from "geojson";
 import type { CvDetection, CvEst, CvResult } from "./types.ts";
 
 export type CvObjectProps = {
@@ -21,7 +21,7 @@ export type CvObjectProps = {
   height: number;
 };
 
-export type CvFeature = Feature<Polygon, CvObjectProps>;
+export type CvFeature = Feature<Polygon | Point, CvObjectProps>;
 
 /** Metre offsets [along-bearing, cross-bearing] -> lon/lat ring. Flat-earth
  *  scale is fine at street range (tens of metres). */
@@ -122,6 +122,11 @@ function objectMesh(d: CvDetection, cameraId: string): CvFeature[] {
 /**
  * All drawable features for one CV result. `[]` for a failed pass; detections
  * lacking `est` or `footprint_m` are skipped, never approximated.
+ *
+ * Each placed detection contributes its extrusion mesh (the 3D view) AND one
+ * Point feature (the 2D dot): meshes viewed top-down are a few pixels at
+ * route zoom, so without the dots the objects are invisible until the user
+ * tilts. The layers split them by geometry type.
  */
 export function cvResultFeatures(res: CvResult): CvFeature[] {
   if (!res.ok) return [];
@@ -129,10 +134,38 @@ export function cvResultFeatures(res: CvResult): CvFeature[] {
   for (const d of res.detections ?? []) {
     if (!d.est || !d.footprint_m) continue;
     feats.push(...objectMesh(d, res.camera_id));
+    feats.push({
+      type: "Feature",
+      properties: {
+        label: d.label,
+        conf: d.conf,
+        camera_id: res.camera_id,
+        color: d.label === "person" ? "#FF4D4D" : "#FFD60A",
+        base: 0,
+        height: 0,
+      },
+      geometry: { type: "Point", coordinates: [d.est.lon, d.est.lat] },
+    });
   }
   return feats;
 }
 
+const VEHICLE_LABELS = new Set(["car", "truck", "bus", "motorbike", "bicycle"]);
+
 /** How many detections in a result actually carry a world position. */
 export const placedCount = (res: CvResult): number =>
   res.ok ? (res.detections ?? []).filter((d) => d.est && d.footprint_m).length : 0;
+
+/** Placed people/vehicles in one result, for the dock's on-route tally. */
+export function placedCounts(res: CvResult): { people: number; vehicles: number } {
+  let people = 0;
+  let vehicles = 0;
+  if (res.ok) {
+    for (const d of res.detections ?? []) {
+      if (!d.est || !d.footprint_m) continue;
+      if (d.label === "person") people += 1;
+      else if (VEHICLE_LABELS.has(d.label)) vehicles += 1;
+    }
+  }
+  return { people, vehicles };
+}

@@ -308,11 +308,30 @@ export default function MapView({
         id: "cv-objects",
         type: "fill-extrusion",
         source: "cv-objects",
+        filter: ["==", ["geometry-type"], "Polygon"],
         paint: {
           "fill-extrusion-color": ["get", "color"],
           "fill-extrusion-base": ["get", "base"],
           "fill-extrusion-height": ["get", "height"],
           "fill-extrusion-opacity": 0.95,
+        },
+      });
+
+      // Flat dots for the same detections: in 2D top-down the meshes above
+      // are a few pixels at route zoom, so the dots are what makes a
+      // detected person/car findable at all. Hidden in 3D, where the meshes
+      // take over (the view effect flips visibility).
+      m.addLayer({
+        id: "cv-objects-dots",
+        type: "circle",
+        source: "cv-objects",
+        filter: ["==", ["geometry-type"], "Point"],
+        paint: {
+          "circle-radius": ["case", ["==", ["get", "label"], "person"], 4.5, 5.5],
+          "circle-color": ["get", "color"],
+          "circle-opacity": 0.95,
+          "circle-stroke-width": 1.5,
+          "circle-stroke-color": "#FFFFFF",
         },
       });
 
@@ -374,6 +393,11 @@ export default function MapView({
       // 2D also means MapLibre does no extrusion work in the default view.
       m.setLayoutProperty("building-flat", "visibility", is3D ? "none" : "visible");
       m.setLayoutProperty("building-3d", "visibility", is3D ? "visible" : "none");
+      // Dots carry the CV objects in 2D; the extrusion meshes carry them in
+      // 3D. Both at once would double-mark every detection.
+      if (m.getLayer("cv-objects-dots")) {
+        m.setLayoutProperty("cv-objects-dots", "visibility", is3D ? "none" : "visible");
+      }
 
       // Extrusions only exist from z14, so a tilted view above that zoom shows
       // a flat city and looks broken.
