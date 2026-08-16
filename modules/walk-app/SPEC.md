@@ -22,11 +22,25 @@ The client now routes through **`modules/pathfinding`** — the ONE shipped
 router (god SPEC §5.1 spike 4) — via a server proxy to media-ingest:
 
 - `GET /api/path?from=lat,lon&to=lat,lon&kind=safer|shortest&live=` proxies
-  `:8030/api/route` (instant one-and-done, `live=false` from this client for
-  now). 422 error codes pass through; 503 means media-ingest is down.
+  `:8030/api/route`. The safer trip requests `live=true` and starts a
+  PathLiveSession; the shortest trip stays the one-and-done static baseline.
+  422 error codes pass through; 503 means media-ingest is down.
 - `GET|DELETE /api/path/live/{path_id}?since=` proxies the PathLiveSession
-  poll — **wired server-side, not yet polled by the client** (next port:
-  poll ~2 s, re-render on `version` change, per demo-ui row 3).
+  poll - **and the client now polls it** (16 Aug, demo-ui row 3 complete):
+  ~2 s interval keyed on `path_id`, the whole PathObject swaps in on a
+  `version` bump (auto-replace), the map camera only re-fits on a new trip,
+  404 ends the poll (180 s upstream TTL), cleanup sends the DELETE, and the
+  dock chip shows `live v{n} · {layers}` once `live.incorporated` flips.
+- **3D CV objects (demo-ui row 7, 16 Aug)**: local-CNN cars/people rendered
+  as composed fill-extrusion meshes (`src/cvObjects.ts`), fed three ways -
+  `cv_detections` shipped in the PathObject, one HQ detlib still pass per new
+  `path_id` (max 4 in flight, yolo retry), and a 350 ms cached-lane poll for
+  the opened camera with a one-time auto-tilt to 3D. Detections without a
+  world-position estimate are never drawn. Decision log:
+  `docs/live-routing-and-cv.md`.
+- **Second heatmap** from the router's static collision + osint evidence
+  (`GET /api/blocks/router`, layers button cycles weights -> router -> plain
+  when the artifacts exist).
 - The UI renders the PathObject: segments colored by `risk_bucket`
   (green/amber/red per demo-ui row 4 — the sanctioned extension of the
   colour budget below), a per-segment `risk_parts` evidence sheet (same
@@ -105,6 +119,20 @@ python3 -m venv .venv && ./.venv/bin/pip install -r requirements.txt
 
 Without it the app still routes; the top bar shows a "cameras offline" chip.
 
+The consolidated router and the CV objects need three more one-time builds
+(order matters - the static overlay is positional per graph edge):
+
+```bash
+cd modules/harness && python3 scripts/build-graph.py        # Overpass, ~1 min
+cd modules/pathfinding && python -m pathfind.build_static   # SDOT + osint, ~7 s
+cd modules/media-ingest && ./.venv/bin/python -m ingest.setup_cv  # local CNN
+# then (re)start uvicorn so /api/route mounts, and:
+curl -X POST localhost:8030/api/sweep/start
+```
+
+Known trap: a root-owned `~/.cache/torch` (from any old sudo run) breaks the
+detlib checkpoint download; rename it aside and let torch recreate it.
+
 ## Endpoints (`:8020`)
 
 | Endpoint | Returns |
@@ -117,6 +145,8 @@ Without it the app still routes; the top bar shows a "cameras offline" chip.
 | `GET /api/geocode?q=pike+st` | `{query, results:[{label, kind, lat, lon}]}` - streets and intersections from the walk graph, offline |
 | `POST /api/route` | same, body `{origin:[lon,lat], dest:[lon,lat], algorithm?}` |
 | `GET /api/blocks` | GeoJSON FeatureCollection of every walkable block, `{segment_id, risk}` per feature; built once at boot, pre-gzipped (~300 kB). Feeds the map's routing-weight layer |
+| `GET /api/blocks/router` | Second heatmap: the consolidated router's static collision + osint evidence per edge, read from `modules/harness`/`modules/pathfinding` data artifacts on disk, rank-scaled onto the same ramp. 503 with `{ok:false, why}` when those artifacts are not built (the layers button then cycles two states, not three) |
+| `GET /api/cv/camera/:cid` | local-CNN detections with world positions, proxied (`?backend=detlib&force=true` = HQ still pass). Feeds the 3D cars/people extrusions (demo-ui row 7) |
 | `GET /api/segment/:segment_id` | one block's §6.4 `SegmentAssessment`, for the tap-anywhere evidence sheet. 404 for an unknown id |
 | `GET /api/cameras?lat&lon&radius_m` (or `?street=`) | §6.7 `CameraConvergence`, built here from media-ingest |
 | `POST /api/cameras/route` | every camera watching a route, in passing order. Body `{polyline:[[lat,lon],…], radius_m?}` |
