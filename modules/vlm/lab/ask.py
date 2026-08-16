@@ -8,6 +8,8 @@
   ./ask.py IMAGE -f prompts/people.txt --json --draw   # force JSON, draw boxes/dots -> out/
   ./ask.py samples/*.jpg -f prompts/caption.txt --json  # many images, one block each
 
+  ./ask.py IMAGE --api openai -m /home/acer01/models/vlm/Molmo2-8B -p "Point to every person."   # vLLM server
+
 stdlib only; no venv needed. Output goes to stdout and is appended to log.jsonl.
 """
 import argparse, base64, json, sys, time, urllib.request, os
@@ -29,6 +31,24 @@ def prep(image, edge):
         im = im.resize((round(im.width * s / 28) * 28, round(im.height * s / 28) * 28), Image.LANCZOS)
         im.save(out, quality=92)
     return out
+
+def ask_openai(model, prompt, image, json_mode, max_tokens, base=None):
+    """Same call against an OpenAI-compatible server (vLLM: docker vllm/vllm-openai, :8000)."""
+    base = base or os.environ.get("OPENAI_URL", "http://127.0.0.1:8000/v1")
+    b64 = base64.b64encode(Path(image).read_bytes()).decode()
+    body = {"model": model, "temperature": 0, "max_tokens": max_tokens,
+            "messages": [{"role": "user", "content": [
+                {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b64}"}},
+                {"type": "text", "text": prompt}]}]}
+    if json_mode: body["response_format"] = {"type": "json_object"}
+    req = urllib.request.Request(f"{base}/chat/completions", data=json.dumps(body).encode(),
+                                 headers={"Content-Type": "application/json", "Authorization": "Bearer none"})
+    t0 = time.time()
+    with urllib.request.urlopen(req, timeout=600) as r:
+        out = json.load(r)
+    text = out["choices"][0]["message"].get("content") or ""
+    out["eval_count"] = (out.get("usage") or {}).get("completion_tokens", "?")
+    return text, round(time.time() - t0, 2), out
 
 def ask(model, prompt, image, json_mode, max_tokens, think=False):
     body = {"model": model, "prompt": prompt, "stream": False, "keep_alive": "24h",
@@ -69,8 +89,14 @@ def draw(image, text, model, outdir):
     try:
         data = json.loads(text)
     except Exception:
-        return None
-    items = data.get("people") or data.get("objects") or data.get("detections") or []
+        # Molmo's native pointing: <points x1="12.3" y1="45.6" x2=... alt="person">...</points>
+        # or <point x="..." y="...">; coordinates are percent of width/height.
+        import re
+        pts = re.findall(r'\bx\d*="([\d.]+)"\s+y\d*="([\d.]+)"', text)
+        if not pts:
+            return None
+        data = {"people": [{"point_2d": [float(x) / 100, float(y) / 100]} for x, y in pts]}
+    items = data.get("people") or data.get("objects") or data.get("detections") or data.get("points") or []
     im = Image.open(image).convert("RGB"); W, H = im.size; d = ImageDraw.Draw(im); n = 0
     conv = convention(model)
     for it in items:
@@ -110,12 +136,17 @@ def main():
     ap.add_argument("-n", "--max-tokens", type=int, default=512)
     ap.add_argument("--edge", type=int, default=0, help="resize long edge to N (multiple of 28) before sending; 0 = send file as-is")
     ap.add_argument("--think", action="store_true", help="let thinking models think (slower; default off)")
+    ap.add_argument("--api", choices=["ollama", "openai"], default=os.environ.get("VLM_API", "ollama"),
+                    help="ollama (:11434, default) or openai-compatible (vLLM :8000; OPENAI_URL to override)")
     a = ap.parse_args()
     prompt = a.prompt or (Path(a.prompt_file).read_text() if a.prompt_file else
               "Describe what is visible in this traffic camera frame. Count the people you can actually see.")
     for src in a.images:
         img = prep(src, a.edge)
-        text, secs, raw = ask(a.model, prompt, img, a.json, a.max_tokens, a.think)
+        if a.api == "openai":
+            text, secs, raw = ask_openai(a.model, prompt, img, a.json, a.max_tokens)
+        else:
+            text, secs, raw = ask(a.model, prompt, img, a.json, a.max_tokens, a.think)
         print(f"=== {src}  [{a.model}  {secs}s  {raw.get('eval_count','?')} tok  edge={a.edge or 'orig'}]")
         if raw.get("_note"): print(f"  ({raw['_note']})")
         print(text.strip())
