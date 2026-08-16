@@ -16,12 +16,14 @@ import {
   fetchCameras,
   fetchDetections,
   fetchFrameRecord,
+  fetchLivePath,
   fetchPath,
   fetchRoute,
   fetchRouteCameras,
   fetchSegment,
   health,
   RouteError,
+  stopLivePath,
 } from "./api.ts";
 import { cvResultFeatures, placedCount, type CvFeature } from "./cvObjects.ts";
 import {
@@ -227,6 +229,44 @@ export default function App() {
       cancelled = true;
     };
   }, [origin, dest]);
+
+  // -- live session poll (demo-ui row 3, the live half) --------------------
+  // The safer trip starts a PathLiveSession upstream; polling ~2 s brings
+  // live camera evidence (occupancy, VLM flags) into the weights, and the
+  // path AUTO-REPLACES when that evidence changes the optimum: a bumped
+  // `version` carries a whole new PathObject. "expired" (404) means the
+  // session is gone upstream and polling stops; a transient miss is ridden
+  // out without tearing the route down.
+  const liveVersion = useRef(0);
+  const livePathId = pathPair?.safer.path_id ?? null;
+  useEffect(() => {
+    if (!livePathId || !pathPair) return;
+    liveVersion.current = pathPair.safer.version;
+    let stopped = false;
+    const t = setInterval(async () => {
+      const tick = await fetchLivePath(livePathId, liveVersion.current);
+      if (stopped) return;
+      if (tick === "expired") {
+        clearInterval(t);
+        return;
+      }
+      if (isUnavailable(tick)) return; // transient; next tick may answer
+      if (tick.version > liveVersion.current) {
+        liveVersion.current = tick.version;
+        setPathPair((prev) =>
+          prev && prev.safer.path_id === livePathId ? { ...prev, safer: tick.path } : prev,
+        );
+      }
+    }, 2000);
+    return () => {
+      stopped = true;
+      clearInterval(t);
+      stopLivePath(livePathId);
+    };
+    // Keyed on the trip, not the PathObject: a version bump replaces the
+    // object but must not restart the poll loop.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [livePathId]);
 
   // -- CV feed 1: cached results shipped WITH the path ---------------------
   // Renders instantly (age is honest via each result's frame_ts) and re-runs
@@ -729,7 +769,16 @@ export default function App() {
                 </span>
               </span>
               {pathPair.safer.live.incorporated ? (
-                <span className="chip chip-live">live v{pathPair.safer.version}</span>
+                <span
+                  className="chip chip-live"
+                  title={`${pathPair.safer.live.basis}. Cameras reporting: ${
+                    Object.keys(pathPair.safer.live.cameras_reporting ?? {}).length
+                  }.`}
+                >
+                  live v{pathPair.safer.version}
+                  {(pathPair.safer.live.layers_incorporated?.length ?? 0) > 0 &&
+                    ` · ${pathPair.safer.live.layers_incorporated!.join("+")}`}
+                </span>
               ) : (
                 <span
                   className="chip chip-flag"

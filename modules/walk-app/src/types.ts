@@ -238,7 +238,8 @@ export type PathLiveMeta = {
   basis: string;
   layers_pending: string[];
   layers_incorporated?: string[];
-  cameras_reporting?: number;
+  /** Per-camera live occupancy actually feeding the weights, keyed by id. */
+  cameras_reporting?: Record<string, { people: number; source: string }>;
 };
 
 export type PathObject = {
