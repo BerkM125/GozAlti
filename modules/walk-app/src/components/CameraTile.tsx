@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import Hls from "hls.js";
 import { frameUrl } from "../api.ts";
+import { PlayIcon } from "./icons.tsx";
 import { FRESH_MAX_AGE_S } from "../config.ts";
 import { familyOf, type Camera, type FrameRecord, type Observation } from "../types.ts";
 
@@ -154,7 +155,7 @@ export default function CameraTile({
   return (
     <figure className={`cam cam-${size}`}>
       <button
-        className="cam-media"
+        className={`cam-media ${feed === "loading" ? "is-loading" : ""}`}
         onClick={onOpen}
         aria-label={`Open ${camera.desc ?? camera.camera_id}`}
       >
@@ -187,7 +188,7 @@ export default function CameraTile({
             it is available to open, never that it is playing. */}
         {camera.live_hls && !streaming && (
           <span className="cam-canlive" title="Tap to watch this camera live">
-            ▶ LIVE
+            <PlayIcon /> LIVE
           </span>
         )}
         {/* On a route, how far along the walk matters more than how far off it:

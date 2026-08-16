@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import MapView from "./components/MapView.tsx";
+import { CameraIcon, PeopleIcon } from "./components/icons.tsx";
 import { CameraPanel, NearbyPanel, SegmentSheet, type Placed } from "./components/Panels.tsx";
 import { CameraSheet } from "./components/CameraSheet.tsx";
 import {
@@ -494,21 +495,3 @@ export default function App() {
     </div>
   );
 }
-
-const CameraIcon = () => (
-  <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
-    <path
-      fill="currentColor"
-      d="M4 7h3l1.5-2h7L17 7h3a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V8a1 1 0 0 1 1-1Zm8 3.2A3.8 3.8 0 1 0 12 17.8 3.8 3.8 0 0 0 12 10.2Z"
-    />
-  </svg>
-);
-
-const PeopleIcon = () => (
-  <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
-    <path
-      fill="currentColor"
-      d="M9 11a3.2 3.2 0 1 0 0-6.4A3.2 3.2 0 0 0 9 11Zm7.2.4a2.6 2.6 0 1 0 0-5.2 2.6 2.6 0 0 0 0 5.2ZM9 12.6c-2.9 0-6 1.5-6 3.6V19h12v-2.8c0-2.1-3.1-3.6-6-3.6Zm7.2.6c-.6 0-1.3.1-1.9.2 1 .8 1.7 1.9 1.7 3v3H22v-2.5c0-1.9-2.6-3.1-5.8-3.1Z"
-    />
-  </svg>
-);

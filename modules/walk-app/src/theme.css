@@ -26,13 +26,35 @@
 :root {
   color-scheme: light;
 
-  --sans: "Inter", -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", system-ui, sans-serif;
+  /* System-first: real SF Pro on the demo iPhone, Segoe/Roboto elsewhere.
+     No webfont, so nothing depends on the venue's network. */
+  --sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
   --mono: ui-monospace, "SF Mono", "JetBrains Mono", "IBM Plex Mono", Menlo, monospace;
+
+  /* -- type -----------------------------------------------------------------
+     Six sizes, no fractions. Every font-size in styles.css comes from here. */
+  --text-xs: 11px; /* badges, ids, chips, microcaps */
+  --text-sm: 12px; /* sheet subtitles, notes, summary */
+  --text-md: 13px; /* hints, banners, buttons, list body */
+  --text-base: 15px; /* body, stat values, tile titles */
+  --text-lg: 17px; /* wordmark */
+  --text-xl: 20px; /* sheet titles */
+
+  --track-tight: -0.02em; /* titles and the wordmark */
+  --track-caps: 0.06em; /* uppercase microcaps */
+
+  /* -- spacing (4pt grid) --------------------------------------------------- */
+  --sp-1: 4px;
+  --sp-2: 8px;
+  --sp-3: 12px;
+  --sp-4: 16px;
+  --sp-5: 20px;
+  --sp-6: 24px;
+  --edge: 12px; /* the screen inset every floating panel shares */
+  --dock-clearance: 150px; /* keeps MapLibre's controls above the dock */
 
   /* -- surfaces ------------------------------------------------------------ */
   --canvas: #f2f2f7; /* systemGray6, only seen behind the map */
-  --surface: #ffffff;
-  --surface-2: #f2f2f7;
   --surface-3: #e5e5ea; /* systemGray5 */
   --scrim: rgb(0 0 0 / 0.28);
 
@@ -48,6 +70,16 @@
   --glass-edge: rgb(255 255 255 / 0.6); /* inner highlight, the lit rim */
   --glass-line: rgb(0 0 0 / 0.07); /* outer hairline */
 
+  /* -- fills ----------------------------------------------------------------
+     Apple's grey fills: one base colour, three alphas. */
+  --fill-soft: rgb(120 120 128 / 0.08); /* cards, grouped lists */
+  --fill: rgb(120 120 128 / 0.12); /* buttons at rest */
+  --fill-press: rgb(120 120 128 / 0.2); /* buttons pressed */
+
+  /* Dark glass chips that sit on imagery: age badge, distance, LIVE. */
+  --chip-dark: rgb(0 0 0 / 0.55);
+  --chip-blur: blur(8px) saturate(160%);
+
   /* -- text ---------------------------------------------------------------- */
   --fg: #1c1c1e; /* label */
   --fg-dim: #3c3c43; /* secondaryLabel at full opacity */
@@ -55,43 +87,45 @@
   --fg-inverse: #ffffff;
 
   --line: rgb(60 60 67 / 0.29); /* separator */
-  --line-strong: rgb(60 60 67 / 0.5);
 
-  /* -- meaning ------------------------------------------------------------- */
+  /* -- meaning --------------------------------------------------------------
+     The meaning hexes are mirrored in src/palette.ts, because MapLibre paint
+     cannot read CSS variables. Change a colour in both files or the map and
+     the chrome will disagree. */
   --accent: #007aff; /* systemBlue */
-  --accent-press: #0062cc;
-  --accent-soft: #e5f0ff;
 
   --recommend: #34c759; /* systemGreen */
   --recommend-text: #248a3d; /* 4.6:1 on white - the swatch itself is too light for text */
   --recommend-soft: #e3f8e9;
+  --on-recommend: #04340f; /* text on a solid green fill */
 
   --flag: #ff9500; /* systemOrange */
   --flag-text: #995700; /* 4.9:1 on white */
   --flag-soft: #fff2e0;
+  --on-flag: #351f00; /* text on a solid orange fill */
 
   --alert: #ff3b30; /* systemRed - RESERVED */
   --alert-text: #c00d02; /* 5.1:1 on white */
   --alert-soft: #ffe8e6;
 
-  --direct: #8e8e93; /* the plain shortest route, deliberately quiet */
-
-  /* -- detection classes ---------------------------------------------------
+  /* -- detection classes ----------------------------------------------------
      Four families rather than eleven hues; shape carries the rest. */
   --class-person: #1c1c1e;
   --class-vehicle: #5856d6; /* systemIndigo - informational, not urgent */
   --class-obstruction: #ff9500;
   --class-other: #8e8e93;
 
-  /* -- form ---------------------------------------------------------------- */
+  /* -- form ----------------------------------------------------------------- */
+  --r-xs: 3px; /* detection swatch corners */
   --r-sm: 8px;
   --r-md: 12px;
-  --r-lg: 16px;
   --r-xl: 22px;
   --r-full: 999px;
 
   --tap: 44px; /* Apple's minimum, and this is used outdoors one-handed */
+  --dur-fast: 120ms; /* presses */
   --dur: 200ms;
+  --dur-slow: 320ms; /* sheets and the dock morph */
   --ease: cubic-bezier(0.32, 0.72, 0, 1); /* the iOS sheet curve */
 
   /* Soft and wide, never a hard dark edge. */

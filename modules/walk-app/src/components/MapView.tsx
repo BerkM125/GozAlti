@@ -2,8 +2,10 @@ import { useEffect, useRef } from "react";
 import maplibregl from "maplibre-gl";
 import type { FeatureCollection } from "geojson";
 import { CENTER, DEFAULT_ZOOM, PITCH_2D, PITCH_3D } from "../config.ts";
-import { buildMapStyle, MAP } from "../mapStyle.ts";
+import { buildMapStyle } from "../mapStyle.ts";
+import { ROUTE, SKY } from "../palette.ts";
 import { familyOf, type Camera, type Detection, type LngLat, type RouteResult } from "../types.ts";
+import { CAMERA_MARKER_GLYPH } from "./icons.tsx";
 
 const EMPTY: FeatureCollection = { type: "FeatureCollection", features: [] };
 
@@ -270,7 +272,7 @@ export default function MapView({
       for (const c of cameras) {
         const live = c.live_hls ? "mk-cam-live" : "";
         const sel = c.camera_id === selectedCamera ? "is-selected" : "";
-        const node = el(`mk mk-cam ${live} ${sel}`, CAMERA_GLYPH);
+        const node = el(`mk mk-cam ${live} ${sel}`, CAMERA_MARKER_GLYPH);
         // A cone is drawn only when the bearing is actually resolved. An
         // unresolved camera shows a marker with no direction rather than a
         // guessed one.
@@ -326,7 +328,11 @@ export default function MapView({
 // ---------------------------------------------------------------------------
 
 /** Leaves room for the top bar and the dock so the route is never behind them. */
-const FIT_PADDING = { padding: { top: 110, bottom: 300, left: 44, right: 44 } };
+const TOP_CHROME_PX = 110; /* topbar plus safe-area headroom */
+const BOTTOM_CHROME_PX = 300; /* the dock at its full routed height */
+const FIT_PADDING = {
+  padding: { top: TOP_CHROME_PX, bottom: BOTTOM_CHROME_PX, left: 44, right: 44 },
+};
 
 function routeBounds(result: RouteResult): maplibregl.LngLatBounds {
   const b = new maplibregl.LngLatBounds();
@@ -335,33 +341,8 @@ function routeBounds(result: RouteResult): maplibregl.LngLatBounds {
   return b;
 }
 
-/** Haze toward the horizon, so a tilted view has depth instead of a hard edge. */
-const SKY = {
-  "sky-color": "#C8DCEC",
-  "horizon-color": "#EDEFF0",
-  "fog-color": MAP.land,
-  "fog-ground-blend": 0.55,
-} as const;
-
-/**
- * Route colours. Green is the recommendation and appears nowhere else on the
- * map; the direct route is grey because it is a reference, not a suggestion.
- * A white casing under the green keeps it readable over pale roads.
- */
-const PALETTE = {
-  safer: "#34C759",
-  direct: "#8E8E93",
-  flag: "#FF9500",
-  casing: "#FFFFFF",
-} as const;
-
-const CAMERA_GLYPH =
-  '<svg viewBox="0 0 24 24" width="13" height="13" aria-hidden="true">' +
-  '<path fill="currentColor" d="M4 7h3l1.5-2h7L17 7h3a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V8a1 1 0 0 1 1-1Zm8 3.2A3.8 3.8 0 1 0 12 17.8 3.8 3.8 0 0 0 12 10.2Z"/>' +
-  "</svg>";
-
 function paintRoutes(m: maplibregl.Map, result: RouteResult | null) {
-  const p = PALETTE;
+  const p = ROUTE;
 
   const line = (polyline: [number, number][] | undefined, props: Record<string, string>) =>
     polyline

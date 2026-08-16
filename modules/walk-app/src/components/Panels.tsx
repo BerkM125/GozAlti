@@ -1,5 +1,6 @@
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import CameraTile from "./CameraTile.tsx";
+import { CloseIcon } from "./icons.tsx";
 import {
   EVIDENCE_LABEL,
   FAMILY_LABEL,
@@ -29,18 +30,40 @@ export function Sheet({
   children: ReactNode;
   tall?: boolean;
 }) {
+  // Dismissal plays the slide-out first and unmounts on animationend. Under
+  // prefers-reduced-motion the animations are disabled, animationend never
+  // fires, and waiting for it would leave the sheet stuck - so close directly.
+  const [closing, setClosing] = useState(false);
+  const requestClose = () => {
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+      onClose();
+      return;
+    }
+    setClosing(true);
+  };
+  const exit = closing ? "is-closing" : "";
+
   return (
     <>
-      <div className="scrim" onClick={onClose} />
-      <section className={`sheet ${tall ? "is-tall" : ""}`} role="dialog" aria-label={title}>
+      <div className={`scrim ${exit}`} onClick={requestClose} />
+      <section
+        className={`sheet ${tall ? "is-tall" : ""} ${exit}`}
+        role="dialog"
+        aria-label={title}
+        onAnimationEnd={(e) => {
+          // The entrance animation ends on this same element; only the
+          // slide-out (and not a child's animation) may unmount the sheet.
+          if (closing && e.target === e.currentTarget) onClose();
+        }}
+      >
         <div className="sheet-grip" />
         <header className="sheet-head">
           <div>
             <h2>{title}</h2>
             {sub && <p className="sheet-sub">{sub}</p>}
           </div>
-          <button className="icon-btn" onClick={onClose} aria-label="Close">
-            ✕
+          <button className="icon-btn" onClick={requestClose} aria-label="Close">
+            <CloseIcon />
           </button>
         </header>
         <div className="sheet-body">{children}</div>
