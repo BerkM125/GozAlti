@@ -92,10 +92,15 @@ def draw(image, text, model, outdir):
         # Molmo's native pointing: <points x1="12.3" y1="45.6" x2=... alt="person">...</points>
         # or <point x="..." y="...">; coordinates are percent of width/height.
         import re
-        pts = re.findall(r'\bx\d*="([\d.]+)"\s+y\d*="([\d.]+)"', text)
+        pts = [(float(x) / 100, float(y) / 100) for x, y in re.findall(r'\bx\d*="([\d.]+)"\s+y\d*="([\d.]+)"', text)]
+        if not pts:
+            # Molmo 2: <points coords="1 032 892 2 070 619 ...">person</points> = (idx x y)* on a 0..1000 grid
+            for m in re.finditer(r'coords="([\d\s]+)"', text):
+                nums = m.group(1).split()
+                pts += [(int(nums[i + 1]) / 1000, int(nums[i + 2]) / 1000) for i in range(0, len(nums) - 2, 3)]
         if not pts:
             return None
-        data = {"people": [{"point_2d": [float(x) / 100, float(y) / 100]} for x, y in pts]}
+        data = {"people": [{"point_2d": [x, y]} for x, y in pts]}
     items = data.get("people") or data.get("objects") or data.get("detections") or data.get("points") or []
     im = Image.open(image).convert("RGB"); W, H = im.size; d = ImageDraw.Draw(im); n = 0
     conv = convention(model)
