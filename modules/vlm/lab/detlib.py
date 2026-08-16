@@ -12,15 +12,37 @@ are already in ~/junk/torchcache on the box:
   maskrcnn     maskrcnn_resnet50_fpn_v2     + pixel masks  people + vehicles
   keypointrcnn keypointrcnn_resnet50_fpn    + 17 keypoints PEOPLE ONLY (person class)
 
-Measured on the GB10 over 23 stills (warmup per config, min-of-2):
-fasterrcnn 64.4 ms, maskrcnn 72.2 ms, keypointrcnn 60.1 ms. The keypoint model is
-the cheapest because it only has one class to score, and it is the only one that
-gives facing direction.
+Measured on the GB10 at min_size=800, 24 video frames, 20 s warmup, order
+counterbalanced (video.py --bench):
 
-Input resolution is currently irrelevant to cost and to recall: torchvision's
-detection transform resizes internally to min_size=800 / max_size=1333, so a 1080p
-frame and a 1024-capped frame become the same tensor (measured: 64.4 vs 64.6 ms,
-133 vs 134 people). `min_size=` on the loader is the knob that actually changes it.
+              720x480 clip     1920x1080 clip
+  fasterrcnn      64.5 ms          68.6 ms
+  maskrcnn        68.4 ms          76.3 ms
+  keypointrcnn    59.1 ms          66.0 ms
+
+The keypoint model is the cheapest because it scores one class, and it is the only
+one that gives facing direction.
+
+Resolution: the FILE's resolution is indeed irrelevant, because torchvision's
+detection transform resizes everything to min_size=800 / max_size=1333 before the
+model sees it. `min_size` itself is very far from irrelevant, and this is the knob
+worth spending on. Measured people found over the same 24 frames:
+
+  min_size          800   1200   1600      cost vs 800
+  1080p  fasterrcnn  235    246    265       1.0x / 2.0x / 3.2x
+         maskrcnn    250    281    303
+         keypoint    240    290    319
+  480p   fasterrcnn   75     89     61
+         maskrcnn     79     91     74
+
+On a source that genuinely has the pixels, raising min_size finds substantially
+more distant pedestrians — boxes under 5% of frame height went 24 -> 27 -> 42 for
+fasterrcnn on the 1080p clip, and mean confidence barely moved (0.874 -> 0.862),
+so these are not junk detections. On a 480p source the curve turns over: past
+about 1200 you are interpolating detail that was never captured and the box models
+get worse. Match min_size to what the camera actually resolves; there is no single
+right value. Precision is unverified either way — we have no labels for these
+frames, so "more detections" is measured and "more correct detections" is not.
 """
 import math, time
 from pathlib import Path

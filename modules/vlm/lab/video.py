@@ -116,7 +116,7 @@ def index_frames(frames, fps, arch, min_size, person_thresh, vehicle_thresh,
             detlib.infer(d, t)
 
     per_frame, prim_ms, kp_ms = [], [], []
-    tr = tracklib.Tracker()
+    tr = tracklib.Tracker.for_fps(fps)
     W = H = None
     for i, f in enumerate(frames):
         t_s = i / fps
@@ -144,7 +144,10 @@ def index_frames(frames, fps, arch, min_size, person_thresh, vehicle_thresh,
     timing = {"detector_ms_mean": round(sum(prim_ms) / len(prim_ms), 1),
               "detector_ms_median": round(sorted(prim_ms)[len(prim_ms) // 2], 1),
               "detector_ms_p90": round(sorted(prim_ms)[int(len(prim_ms) * 0.9)], 1),
-              "detector_arch": arch, "detector_min_size": prim.min_size}
+              "detector_arch": arch, "detector_min_size": prim.min_size,
+              "tracker": {"gate_bh": round(tr.gate_bh, 3), "max_age": tr.max_age,
+                          "min_hits": tr.min_hits, "iou_thresh": tr.iou_thresh,
+                          "stitch_joins": getattr(tr, "joins", 0)}}
     if kp_ms:
         nz = [m for m in kp_ms if m > 0] or [0]
         timing.update({"keypoint_ms_mean": round(sum(nz) / len(nz), 1),

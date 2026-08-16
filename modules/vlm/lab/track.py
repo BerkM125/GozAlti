@@ -82,6 +82,22 @@ class Tracker:
     min_hits      how many observations before a track counts as a real person
     """
 
+    @classmethod
+    def for_fps(cls, fps):
+        """Gates derived from the sample rate instead of hard-coded for 2 fps.
+
+        How far a walker can move between samples is set by the sample interval, so
+        every gate here is a function of it. A brisk walk is around 0.9 body-heights
+        per second, so 1.8/fps body-heights is roughly double the expected step —
+        loose enough to follow, tight enough not to grab the neighbour. At 2 fps that
+        reproduces the 0.9 we started with; at 4 fps it halves, which is the point,
+        because a gate that stays wide while the steps get shorter is how a crowded
+        frame starts swapping identities.
+        """
+        return cls(gate_bh=max(0.35, 1.8 / fps),
+                   max_age=max(2, round(1.5 * fps)),
+                   min_hits=2 if fps <= 2 else max(2, round(0.75 * fps)))
+
     def __init__(self, iou_thresh=0.20, gate_bh=0.9, max_age=3, min_hits=2):
         self.iou_thresh, self.gate_bh = iou_thresh, gate_bh
         self.max_age, self.min_hits = max_age, min_hits
@@ -269,8 +285,8 @@ def aggregate(per_frame, tracks, fps_sampled, duration):
         "vehicles_mean": round(sum(vcounts) / len(vcounts), 2) if vcounts else 0,
         "tracks_total": len(tracks),
         "unique_people": len(confirmed),
-        "unique_people_note": f"tracks seen in >= 2 sampled frames; "
-                              f"{len(tracks) - len(confirmed)} single-frame tracks excluded",
+        "unique_people_note": f"{len(tracks) - len(confirmed)} short tracks excluded as "
+                              f"unconfirmed; unique_people counts the rest",
         "dwell_median_s": dwells[len(dwells) // 2] if dwells else 0,
         "dwell_max_s": dwells[-1] if dwells else 0,
         "motion_mix": motions, "travel_mix": travel, "facing_mix": facing,
