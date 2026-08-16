@@ -601,6 +601,70 @@ button {
   color: var(--fg-dim);
 }
 
+/*
+ * A routed dock owns a third of the phone, so it folds: the grabber (chevron
+ * pointing down, iOS-sheet style) shrinks it to a one-line pill keeping only
+ * the recommended time and length; tapping the pill expands it back.
+ */
+.dock-grab {
+  height: 20px;
+  margin: -6px 0;
+  display: grid;
+  place-items: center;
+  border: none;
+  background: none;
+  border-radius: var(--r-sm);
+  color: var(--fg-mute);
+}
+
+.dock-grab svg {
+  transform: rotate(180deg);
+}
+
+.dock.is-collapsed {
+  padding: var(--sp-2) var(--sp-4);
+  border-radius: var(--r-full);
+}
+
+.dock-mini {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  min-height: 28px;
+  padding: 0;
+  border: none;
+  background: none;
+  text-align: left;
+}
+
+.dock-mini .route-tag {
+  color: var(--accent-text);
+}
+
+.dock-mini-time {
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: var(--track-tight);
+}
+
+.dock-mini-time small {
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--fg-dim);
+}
+
+.dock-mini-len {
+  font-size: var(--text-sm);
+  color: var(--fg-mute);
+}
+
+.dock-mini-chevron {
+  margin-left: auto;
+  display: grid;
+  place-items: center;
+  color: var(--fg-mute);
+}
+
 /* ----------------------------------------------------------------- feeds tab */
 
 /*

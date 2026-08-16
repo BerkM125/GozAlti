@@ -170,6 +170,8 @@ export default function App() {
   }, []);
 
   const [panel, setPanel] = useState<Panel>(null);
+  /** Routed dock folded down to a one-line pill, giving the map the screen. */
+  const [dockCollapsed, setDockCollapsed] = useState(false);
   const [selectedSegment, setSelectedSegment] = useState<string | null>(null);
   const [selectedCamera, setSelectedCamera] = useState<string | null>(null);
   const [ingestUp, setIngestUp] = useState<boolean | null>(null);
@@ -605,6 +607,7 @@ export default function App() {
       setResult(null);
       setSelectedSegment(null);
       setRouteError(null);
+      setDockCollapsed(false);
       clearCv();
     }
   }, [origin, dest, clearCv]);
@@ -616,6 +619,7 @@ export default function App() {
     setResult(null);
     setSelectedSegment(null);
     setRouteError(null);
+    setDockCollapsed(false);
     clearCv();
   };
 
@@ -672,6 +676,18 @@ export default function App() {
     for (const s of pathPair?.safer.segments ?? []) b[s.risk_bucket] += 1;
     return b;
   }, [pathPair]);
+
+  // The one line the collapsed dock keeps: the recommended walk's time and
+  // length, from whichever router answered. Null while routing (or unrouted),
+  // so the dock always expands to show progress and errors.
+  const recommended = routing
+    ? null
+    : pathPair
+      ? { eta: Math.max(1, Math.round(pathPair.safer.eta_min)), km: pathPair.safer.length_m / 1000 }
+      : result
+        ? { eta: minutes(result.safer.length_m), km: result.safer.length_m / 1000 }
+        : null;
+  const collapsed = dockCollapsed && recommended !== null;
 
   return (
     <div className={`app ${trip.origin || trip.dest ? "has-trip" : ""}`}>
@@ -759,7 +775,40 @@ export default function App() {
         </div>
       )}
 
-      <div className={`dock glass ${result || pathPair || routeError || routing ? "" : "is-empty"}`}>
+      <div
+        className={`dock glass ${result || pathPair || routeError || routing ? "" : "is-empty"} ${
+          collapsed ? "is-collapsed" : ""
+        }`}
+      >
+        {dockCollapsed && recommended && (
+          <button
+            className="dock-mini"
+            onClick={() => setDockCollapsed(false)}
+            aria-expanded={false}
+            aria-label="Show route details"
+          >
+            <span className="route-tag">Recommended</span>
+            <span className="dock-mini-time">
+              {recommended.eta}
+              <small> min</small>
+            </span>
+            <span className="dock-mini-len mono">{recommended.km.toFixed(1)} km</span>
+            <span className="dock-mini-chevron">
+              <ChevronUpIcon />
+            </span>
+          </button>
+        )}
+        {!collapsed && recommended && (
+          <button
+            className="dock-grab"
+            onClick={() => setDockCollapsed(true)}
+            aria-expanded={true}
+            aria-label="Hide route details"
+            title="Hide route details"
+          >
+            <ChevronUpIcon size={15} />
+          </button>
+        )}
         {!origin && !dest && (
           <p className="hint">
             {userPos
@@ -783,7 +832,7 @@ export default function App() {
         {routing && <p className="hint">Finding a route…</p>}
         {routeError && <p className="banner banner-refuse">{routeError}</p>}
 
-        {pathPair && !routing && (
+        {pathPair && !routing && !collapsed && (
           <>
             {pathPair.safer.detour_cap_hit && (
               <p className="banner banner-flag">
@@ -873,7 +922,7 @@ export default function App() {
           </>
         )}
 
-        {result && !routing && (
+        {result && !routing && !collapsed && (
           <>
             {localFallback && (
               <p className="banner banner-flag">
