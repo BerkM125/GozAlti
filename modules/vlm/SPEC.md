@@ -72,6 +72,15 @@ people; sustained throughput survives the live demo sweep.
 
 | `GET /cache` | — | hit rate, entries, GPU seconds saved |
 | `DELETE /cache` | — | clear it |
+| `GET /` | — | **demo page** — exercises every endpoint, renders the result |
+| `GET /frames` · `GET /frame?path=` | — | sample frames for the demo (path-restricted) |
+
+Open `http://gn100-3511.local:8040/` (or `http://100.106.143.38:8040/` over the tailnet).
+Zero dependencies, zero CDN, served by the service itself, so it works with the venue
+wifi down. It draws detections over the frame, shows flags and caption, and carries a
+**why** table tracing every field to what produced it — counts to the detector with
+per-box confidence, `walkway_status` to the VLM and labelled UNVALIDATED. Buttons cover
+a cached re-read, a 6-camera batch sweep, and `DELETE /cache`.
 
 ### Throughput, all measured on the GB10
 
