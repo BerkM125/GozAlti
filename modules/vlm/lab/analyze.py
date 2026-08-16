@@ -42,7 +42,10 @@ def cam_of(image): return Path(image).name.split("__")[1] if "__" in Path(image)
 def summarize(model_dir, ref):
     cap = parse_blocks(model_dir / "caption.txt") if (model_dir / "caption.txt").exists() else []
     ppl = parse_blocks(model_dir / "people.txt") if (model_dir / "people.txt").exists() else []
+    pts = parse_blocks(model_dir / "points.txt") if (model_dir / "points.txt").exists() else []
     by_img_p = {Path(b["image"]).name: b for b in ppl}
+    by_img_t = {Path(b["image"]).name: b for b in pts}
+    npts = lambda b: len(b["json"]["people"]) if b and b.get("json") and isinstance(b["json"].get("people"), list) else None
     lines = [f"### {model_dir.name}", ""]
     if cap:
         ok = [b for b in cap if b["json"]]
@@ -55,18 +58,24 @@ def summarize(model_dir, ref):
         lines.append(f"- people: parse **{len(ok)}/{len(ppl)}**, {st.mean(secs):.2f}s mean, "
                      f"p90 {sorted(secs)[int(0.9*(len(secs)-1))]:.2f}s, "
                      f"{sum(len(b['json']['people']) for b in ok)} boxes total")
-    lines += ["", "| tag | cam | mac ppl | caption ppl | boxes | crowd | blocked | constr | emerg | light | cap s | ppl s |",
-              "|---|---|---|---|---|---|---|---|---|---|---|---|"]
+    if pts:
+        ok = [b for b in pts if npts(b) is not None]
+        secs = [b["seconds"] for b in pts]
+        lines.append(f"- points: parse **{len(ok)}/{len(pts)}**, {st.mean(secs):.2f}s mean, "
+                     f"p90 {sorted(secs)[int(0.9*(len(secs)-1))]:.2f}s, {sum(npts(b) for b in ok)} points total")
+    lines += ["", "| tag | cam | mac ppl | caption ppl | boxes | points | crowd | blocked | constr | emerg | light | cap s | box s | pt s |",
+              "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|"]
     for b in cap:
         name = Path(b["image"]).name; j = b["json"] or {}
         p = by_img_p.get(name); pj = (p or {}).get("json") or {}
         boxes = len(pj.get("people", [])) if isinstance(pj.get("people"), list) else "—"
+        t = by_img_t.get(name); pn = npts(t); pn = "—" if pn is None else pn
         r = ref.get(name, {})
         yn = lambda v: "✓" if v is True else ("·" if v is False else "?")
         lines.append(f"| {tag_of(name)} | {cam_of(name)} | {r.get('people_visible','—')} | "
-                     f"{j.get('people_visible','?')} | {boxes} | {j.get('crowding','?')} | "
+                     f"{j.get('people_visible','?')} | {boxes} | {pn} | {j.get('crowding','?')} | "
                      f"{yn(j.get('sidewalk_blocked'))} | {yn(j.get('construction'))} | {yn(j.get('emergency_activity'))} | "
-                     f"{j.get('lighting','?')} | {b['seconds']} | {p['seconds'] if p else '—'} |")
+                     f"{j.get('lighting','?')} | {b['seconds']} | {p['seconds'] if p else '—'} | {t['seconds'] if t else '—'} |")
     # agreement stats
     if cap and ppl:
         pairs = [(b["json"].get("people_visible"), len(by_img_p[Path(b["image"]).name]["json"]["people"]))
