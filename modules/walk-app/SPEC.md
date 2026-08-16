@@ -62,10 +62,13 @@ bun run start                                  # serves dist/ + API on :8020
 cloudflared tunnel --url http://localhost:8020 # brew install cloudflared first
 ```
 
-Cameras and detections need media-ingest alongside it:
+Cameras and detections need media-ingest alongside it. On a fresh clone its `data/` is gitignored, so build the camera graph once - no network needed, it reads the committed `experiments/surukamera/data/`:
 
 ```bash
-cd modules/media-ingest && uvicorn ingest.service:app --port 8030
+cd modules/media-ingest
+python3 -m venv .venv && ./.venv/bin/pip install -r requirements.txt
+./.venv/bin/python -m ingest.graph          # ~650 cameras, offline, prints counts
+./.venv/bin/uvicorn ingest.service:app --port 8030
 ```
 
 Without it the app still routes; the top bar shows a "cameras offline" chip.
@@ -77,22 +80,77 @@ Without it the app still routes; the top bar shows a "cameras offline" chip.
 | `GET /api/health` | graph size + whether media-ingest is reachable |
 | `GET /api/route?from=lat,lon&to=lat,lon&algorithm=astar\|dijkstra` | `RouteResult` |
 | `POST /api/route` | same, body `{origin:[lon,lat], dest:[lon,lat], algorithm?}` |
-| `GET /api/cameras?lat&lon&radius_m` | §6.7 `CameraConvergence`, proxied |
-| `GET /api/detections/:cid` | §6.2 `Observation`, proxied |
+| `GET /api/cameras?lat&lon&radius_m` (or `?street=`) | §6.7 `CameraConvergence`, built here from media-ingest |
+| `POST /api/cameras/route` | every camera watching a route, in passing order. Body `{polyline:[[lat,lon],…], radius_m?}` |
+| `GET /api/detections/:cid` | media-ingest's live-state record, proxied |
 | `GET /api/frame/:cid/latest.jpg` | JPEG, proxied |
+| `GET /api/frame/:cid/record` | §6.1 `FrameRecord`, proxied - what the age badge reads |
 | `GET /api/hls/*` | HLS passthrough, proxied |
 | `GET /api/alerts/stream` | SSE; heartbeats only until synthesis exists |
 
 Every upstream call is proxied through media-ingest. This module never calls SDOT directly, so all rate-limit discipline stays in one place.
 
+### Cameras on a route
+
+A route is a line, not a point.
+Asking for the cameras "near" one point on it - you, or the route's midpoint - only ever finds the handful by that point, which is why the app used to show the same three cameras whether the walk was 500 m or 3 km.
+
+`POST /api/cameras/route` measures every camera against the actual polyline and returns the ones within `ROUTE_CORRIDOR_M` (default 180 m, `ROUTE_CORRIDOR_M` env), ordered by how far along the walk they sit:
+
+- `distance_m` becomes the perpendicular distance to the route - "how far off my way is this".
+- `along_m` is how far into the walk the camera sits, and is what the ordering uses, so the list reads in the order you pass them.
+
+There is **no cap** when a route is active: a camera at the far end matters as much as one at the start.
+Without a route the panel falls back to a radius around you, capped at `NEARBY_CAMERA_LIMIT`.
+
+The corridor is computed here rather than by sampling the route with repeated radius queries, which would both miss cameras between samples and double-count the ones near them.
+media-ingest answers `GET /api/cameras` with all 646 cameras from memory in ~30 ms and no upstream call, so this server caches that list for 5 minutes and measures against the whole set at once.
+If media-ingest goes down with a warm cache the layer keeps working from it - camera positions are static graph data - while the age badge and frame still fail honestly, so nothing stale is passed off as current.
+
+Measured: 517 m route -> 12 cameras, 1.1 km -> 19, 2.8 km -> 36. `Route.cameras_en_route` (§6.6) is filled from the same corridor.
+
+### The one documented deviation from §6.7
+
+`/api/cameras` returns the §6.7 `CameraConvergence` **shape**, but `live_hls` and `snapshot_url` are this server's own same-origin paths (`/api/hls/<key>/playlist.m3u8`, `/api/frame/<cid>/latest.jpg`) rather than the absolute `streamlock.net` and `seattle.gov` URLs §6.7's example shows.
+
+This is deliberate, and it is why the endpoint sources media-ingest's `/api/nearby` (and `/api/street/{name}`) instead of its `/api/convergence`:
+
+- `/api/convergence` emits the raw upstream Wowza URL and omits `key`. Handing that to a browser means the phone streams straight from SDOT, which breaks invariant #7 and root `SPEC.md` §6.9 ("No other module talks to SDOT/Wowza/Overpass/Esri directly"). A browser running this bundle *is* this module.
+- `/api/nearby` carries `key`, ready-made proxy-relative URLs, a server-measured `dist_m`, and the `desc`/`street` the UI captions with. It is the same shape `experiments/berkan_testing` consumes.
+
+The field names, types and nullability are unchanged - `live_hls` is still `null` for a snapshot-only camera. media-ingest keeps emitting §6.7 exactly as specified; only this module's own boundary substitutes the value. No shared contract was edited.
+
+**The proxy is not a rate limit.** media-ingest's `/api/hls/{key}/{path}` is a straight passthrough with no gate. Routing through it satisfies invariant #7 and keeps one User-Agent and one place to add a gate later, but the actual load control is the rule below.
+
 ## Design rules the UI enforces
 
 - **No aggregate safety score is ever shown.** `risk` is a routing weight (SPEC §6.4) and stays server-side. The sheet shows the four inputs and the tag each came from.
 - **Colour budget is four meanings**, using Apple's system palette verbatim: blue `#007AFF` is chrome only and never carries meaning on the map, green `#34C759` is the recommendation, orange `#FF9500` is flagged or unmapped, red `#FF3B30` is reserved for live alerts and refusals. Camera markers are neutral so a real alert stays unmistakable.
-- **Every camera image carries an age badge** (`LIVE` / `SNAP 45s` / `SNAP 6m` past 300 s / `NO FRESH FRAME`). Snapshot refresh is 60 s, matching media-ingest's per-camera floor.
+- **Only one camera streams live at a time.** Tiles in the list are snapshots; live HLS plays only in the full-screen viewer, for the one camera the user opened. Each playing tile is a continuous viewer on SDOT's stream host, and nothing upstream throttles that, so the count is held at one. A stream-capable camera showing a still says so and offers `▶ LIVE`; it never shows `LIVE` over a still frame.
+- **Every camera image carries an age badge**, read from the §6.1 `FrameRecord` (`GET /api/frame/:cid/record`), not from the VLM. A camera with no VLM read still has a timestamped frame, so the badge works with no model in the loop: `LIVE` while playing, else `STREAM 6s` / `SNAP 45s` / `CACHED 12m` naming the frame's `source`, `NO FRESH FRAME` when `stale`, `AGE UNKNOWN` when no record has arrived. Snapshot refresh is 60 s, matching media-ingest's per-camera floor.
 - **Detections with no `est` are never placed on the map.** They appear in a "seen, but not placed" group that says the camera's bearing is unresolved.
 - **View cones** are drawn only for cameras with a resolved bearing, at opacity scaled by `bearing_conf`.
 - **"Ahead" and "behind"** are measured along the route, not from a compass, because the browser cannot get a reliable heading without a permission prompt this app does not need. With no route active the panel says the split is not knowable.
+- **The camera list never claims to be "near you" when it is not.** Without a position it is titled "Cameras downtown" and states why, rather than passing downtown cameras off as local ones.
+
+## Location
+
+The app asks for a position once on load and shows the nearest cameras to it, closest first, using the distance media-ingest measured.
+The MapLibre `GeolocateControl` stays for re-centring.
+The first fix eases the map to you and drops a blue dot; later updates do not move the camera, so they cannot fight your panning or yank a framed route off screen.
+
+With a position known, **one tap routes**: the tap sets the destination and the walk starts from you.
+A second tap re-anchors the start. With no position the old tap-start-then-tap-destination flow is unchanged.
+
+When the position cannot be had, the app falls back to downtown for the camera query and says so.
+It distinguishes the causes, because one of them has a fix:
+
+**Geolocation needs a secure context.** It works on `localhost`, and it silently fails over a plain-HTTP LAN address - which is exactly how a phone reaches `bun run dev`. The app detects `!window.isSecureContext` and names it instead of reporting a generic denial. For a phone, use the tunnel:
+
+```bash
+bun run build && bun run start
+bun run tunnel      # cloudflared, terminates HTTPS
+```
 
 ## Basemap
 
@@ -103,10 +161,51 @@ Raster tiles were tried first and dropped: they carry no building geometry to ex
 ## Not covered yet
 
 - Live `Alert` banner and map pulse. The SSE endpoint is wired and streams heartbeats, but `modules/synthesis` does not exist, so there is nothing to push. No alert is fabricated to fill the gap.
-- Camera and detection rendering is untested against a running media-ingest; it has only been exercised against the offline path.
+- Detections and captions need a VLM behind media-ingest. Wiring `VLM_BASE_URL` at the local Ollama does not currently work: `qwen3-vl:8b` is a reasoning model and returns its answer in `reasoning` with an empty `content`, which media-ingest's parser reads as no result. Until that is resolved with the media-ingest owner, every camera honestly reports "no camera read yet"; nothing is fabricated to fill the gap.
+- Bearings are `null` for every camera on a fresh `ingest.graph` build, so there are no view cones and every detection would land in "seen, but not placed". That is invariants #3 and #4 working, not a bug. Resolving them needs media-ingest's `POST /api/orient/{cid}`.
 - Collision and OSINT evidence (§6.3, and the `collision` evidence type) are not wired - synthesis owns those.
 - The JS bundle is ~1.87 MB (542 kB gzipped), dominated by MapLibre and hls.js. Fine over a tunnel, worth code-splitting if it matters.
 - Downtown OSM tagging is uniform enough that the recommended and direct routes are often identical. That is an honest result, not a bug: the divergence this product is built on comes from the live camera layer, which needs media-ingest and the VLM running.
+
+## Verified 2026-08-16 - route camera coverage
+
+Camera count now scales with the walk instead of sitting at three:
+
+| route | cameras | span |
+|---|---|---|
+| 517 m | 12 | 0 - 516 m along |
+| 1.07 km | 19 | 0 - 1070 m along |
+| 1.4 km (in-app) | 28 | 0 - 1431 m along |
+| 2.8 km | 36 | 0 - 2808 m along |
+
+In the browser at 414x896, a 1.4 km route draws 28 camera markers along its whole length, the control badge reads 28, and the sheet reads "Cameras on your route · 28 watching your way · in passing order".
+Ordering is strictly monotonic in `along_m`, and the furthest camera off the route measures 168 m against the 180 m corridor.
+Cameras sitting on the route itself measure 1.8 m and 2.8 m off it.
+
+Cost of the larger list: 28 tiles fetch **4** frame images, because tiles lazy-load; zero `<video>` elements exist until a camera is opened; and zero requests reach `streamlock.net`.
+`FrameRecord` polling was moved to 60 s with a missing-only retry, so a 28-camera route no longer bursts the record endpoint.
+
+Edge cases: a single-point polyline measures to the point (5 cameras), an empty polyline is a 400, malformed JSON is a 400, and a route through an area with no coverage returns 0 cameras with the panel saying that is a gap in the camera network rather than a judgement about the streets.
+With media-ingest down and a warm cache the route layer keeps working from static camera positions; cold, it returns `{ok:false, why}` and routing is unaffected.
+
+## Verified 2026-08-16 - cameras, against a running media-ingest
+
+The gap this section used to record ("untested against a running media-ingest") is closed.
+
+`ingest.graph` built 646 cameras, 355 with streams. Through walk-app on one port, at 414x896 in Chromium:
+
+- `/api/cameras` returns 33 cameras within 500 m, nearest first, with real intersection names and distances. `grep -c streamlock` over the response is **0**.
+- The full HLS chain was walked by hand through both proxies: `playlist.m3u8` -> `chunklist_w*.m3u8` -> a 2.6 MB `video/mp2t` segment, HTTP 200. Relative playlist URIs resolve back through the proxy as intended.
+- Real frames render (720x480 JPEG from 2nd Ave & Spring St), with badges reading `CACHED 16m`, `SNAP 43s`, `SNAP 2m` - every one carrying a measured age.
+- With the camera list open, `document.querySelectorAll('video').length === 0`: no tile streams. Opening a camera creates exactly one `<video>`, requesting `/api/hls/2_Spring/playlist.m3u8` on our own origin, with zero requests to `streamlock.net`.
+- Graceful degradation was verified live: the SDOT stream host began refusing TCP 443 mid-session, and the viewer fell back to a real cached snapshot with an honest `CACHED 21m` badge instead of a dead black box.
+- Location granted: title "Cameras near you", cameras re-query around the fix (5th & Union 118 m, nearest first), blue dot drawn, map eases to z15.5, and one tap produces a 1.1 km route starting from the walker.
+- Location denied: title "Cameras downtown", the panel states the cameras are not near you, and the list still populates.
+
+Two bugs were found and fixed by running it, neither visible from reading:
+
+1. `canPlayType("application/vnd.apple.mpegurl")` returns `"maybe"` in Chromium, so the old code took the native-HLS branch and died with `DEMUXER_ERROR_COULD_NOT_PARSE`, never reaching hls.js. `Hls.isSupported()` is now the primary test, native the fallback.
+2. The frame proxy's 8 s timeout aborted cold upstream fetches that take 8-10 s, so tiles rendered empty with a silent 503. Frame and HLS budgets are now 20 s, matching what media-ingest allows itself.
 
 ## Verified 2026-08-15
 

@@ -44,6 +44,7 @@ One port in production is deliberate: `cloudflared tunnel --url http://localhost
 | `server/graph.ts` | 488 | OSM parse, walkability filter, block splitting, risk scoring, disk cache |
 | `server/routing.ts` | 404 | Min-heap, spatial node index, Dijkstra/A\*, contract shaping |
 | `server/index.ts` | 267 | `Bun.serve` routes, media-ingest proxy, SSE, static `dist/` |
+| `server/cameras.ts` | 170 | §6.7 shaping, and which cameras watch a route |
 | `server/smoke.ts` | 91 | 8 assertions incl. A\* optimality vs Dijkstra |
 
 **Client**
@@ -142,12 +143,13 @@ Text colours are the darker variants (`#248A3D`, `#995700`, `#C00D02`) because t
 These are product rules, not preferences. Breaking one is a bug.
 
 1. **No aggregate safety score reaches the UI.** `risk` is a routing weight (SPEC §6.4) and stays server-side. The sheet shows the four inputs and the tag each came from.
-2. **Every camera image carries an age badge.** `LIVE` / `SNAP 45s` / `SNAP 6m` past 300 s / `NO FRESH FRAME`. Snapshot refresh is 60 s, matching media-ingest's per-camera floor.
+2. **Every camera image carries an age badge**, sourced from the §6.1 `FrameRecord`, never from the VLM. Tying it to an `Observation` means no badge until a model has read the camera, which is how you end up with a bare `SNAP` that asserts nothing. `LIVE` only while a stream is actually playing; otherwise `STREAM 6s` / `SNAP 45s` / `CACHED 12m` naming the frame's source, `NO FRESH FRAME` when `stale`, `AGE UNKNOWN` when no record arrived. Snapshot refresh is 60 s, matching media-ingest's per-camera floor.
 3. **Detections with no `est` are never placed on the map.** They go to a "seen, but not placed" group stating the camera's bearing is unresolved. No position is ever estimated.
 4. **View cones only for resolved bearings**, at opacity scaled by `bearing_conf`.
 5. **Four colours, four meanings.** Blue `#007AFF` is chrome only and never carries meaning on the map. Green `#34C759` is the recommendation and nothing else. Orange `#FF9500` is flagged or unmapped. Red `#FF3B30` is reserved for live alerts and refusals. Camera markers stay neutral for the same reason.
 6. **Ahead/behind is measured along the route, not by compass.** With no route active the panel says the split is not knowable rather than guessing.
-7. **No upstream call bypasses media-ingest.** All SDOT rate-limit discipline stays in one place.
+7. **No upstream call bypasses media-ingest.** All SDOT rate-limit discipline stays in one place. This is why `/api/cameras` is built from media-ingest's `/api/nearby` rather than forwarding `/api/convergence`: the contract endpoint hands out the raw Wowza URL, and a browser running this bundle following it *is* this module calling SDOT. See SPEC.md for the §6.7 deviation this implies.
+9. **At most one camera streams live.** media-ingest's HLS proxy has no rate gate, so each playing tile is one continuous viewer on SDOT's stream host. Live HLS is confined to the full-screen viewer; list tiles are snapshots. Proxying is not throttling, and the SPEC says so out loud.
 8. **Unavailable upstreams render as `{ok:false, why}`**, never a 500 and never a fabricated value.
 
 ## Gotchas
@@ -163,6 +165,14 @@ Each of these cost real debugging time.
 - **A backgrounded tab throttles `requestAnimationFrame` to zero**, so MapLibre never paints and the map looks broken while the DOM chrome renders fine. Check `document.hidden` before debugging the map. Verify through a CDP-driven browser.
 - **`bunx tsc` may resolve a global TypeScript**, not the pinned local one. Use `bun run build`, which runs `tsc --noEmit` first.
 - The style's `load` event fires after the first render, so sources and layers added in `on("load")` never appear if rendering is blocked.
+- **`video.canPlayType("application/vnd.apple.mpegurl")` returns `"maybe"` in Chromium**, which is truthy, so "ask the element first" routes every desktop browser down the native-HLS path where it fails with `DEMUXER_ERROR_COULD_NOT_PARSE`. Test `Hls.isSupported()` first and treat native as the Safari fallback.
+- **A `<video>` left mounted after the stream falls back is a black box** over a perfectly good snapshot. The element has to unmount when the feed degrades, not just stop.
+- **media-ingest's first frame for a camera takes 8-10 s** while it pulls upstream; later ones are cached and instant. Proxy timeouts below ~20 s turn that into a silent 503 and an empty tile. media-ingest allows itself 20 s, so anything shorter here gives up on a frame it was going to get.
+- **Setting only `overflow-y` makes `overflow-x` compute to `auto`**, which gave the sheet a second stray horizontal scrollbar under the camera carousel. Set both. Clipping happens at the *padding* box, so a `-16px` bleed survives `overflow-x: hidden` only if the padding lives on the scroll container itself.
+- **`scroll-snap-align: start` snaps to the scrollport edge, cancelling the carousel's inset**, so the first tile sat flush against the screen. `scroll-padding-left` is what makes the padding survive snapping.
+- **A route is a line, so a radius query is the wrong shape for it.** Asking for cameras near the route's midpoint returns the same few no matter how long the walk is. Measure every camera against the polyline instead: `camerasAlongRoute` in `server/cameras.ts`, ordered by `along_m` so the list reads in passing order. Sampling the route with repeated radius queries is the tempting shortcut and it both misses cameras between samples and double-counts the ones near them.
+- **Uncapped camera lists are fine because `<img loading="lazy">` is doing the work.** A 28-camera route fetches 4 frames, not 28. Anything that forces layout or eagerly loads those images turns one route into 28 rate-gated upstream fetches.
+- **`/api/detections/{cid}` answers `{}`**, not an error, for a camera nothing has analysed. `ok === false` does not catch it, so it gets stored as a real observation and the tile says "no description returned" when the truth is "never read". Guard with `isObservation`.
 
 ## Verify
 
