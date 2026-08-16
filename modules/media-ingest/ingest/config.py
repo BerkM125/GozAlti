@@ -101,6 +101,24 @@ CV_RANGE_MAX_M = float(os.getenv("CV_RANGE_MAX_M", "250"))
 # opens, so API responses come from cache in milliseconds
 CV_PREFETCH = os.getenv("CV_PREFETCH", "1") not in ("0", "false", "no")
 CV_HOT_TTL_S = float(os.getenv("CV_HOT_TTL_S", "30"))
+
+# --- inference backend (reconciled with Adi's modules/vlm/lab/detlib.py) --
+# "auto": detlib (the source of truth) when CUDA is available, yolo on
+# CPU-only boxes for latency. "detlib" / "yolo" force a backend.
+CV_BACKEND = os.getenv("CV_BACKEND", "auto")
+CV_ARCH = os.getenv("CV_ARCH", "fasterrcnn")     # detlib arch (people+vehicles)
+CV_MIN_SIZE = int(os.getenv("CV_MIN_SIZE", "800"))  # detlib's resolution knob
+
+# --- live HLS streaming (focused cameras only) ----------------------------
+# a streamer holds the stream open like ONE normal viewer and decodes frames
+# as chunks arrive — lowest possible frame latency. Hard caps keep upstream
+# cost bounded: at most STREAM_MAX cameras stream at once, each stops
+# STREAM_IDLE_TTL_S after the last request for it.
+STREAM_MAX = int(os.getenv("STREAM_MAX", "3"))
+STREAM_IDLE_TTL_S = float(os.getenv("STREAM_IDLE_TTL_S", "30"))
+STREAM_STALL_S = float(os.getenv("STREAM_STALL_S", "12"))   # reopen if no frame
+STREAM_EMIT_EVERY_S = float(os.getenv("STREAM_EMIT_EVERY_S", "5"))  # feed frames
+                                       # back into the frame store/activity path
 # YOLOv4-tiny (AlexeyAB darknet, free/open) — downloaded by ingest.setup_cv
 CV_MODEL_FILES = {
     "yolov4-tiny.cfg":

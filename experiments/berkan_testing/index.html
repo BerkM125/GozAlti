@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>GözAltı — media-ingest test console</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<link rel="stylesheet" href="/static/vendor/maplibre-gl.css">
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<div id="topbar">
+  <button id="tb-streets" title="streets">☰</button>
+  <div class="tb-title">GÖZ<span>ALTI</span></div>
+  <button id="tb-panel" title="camera panel">⛭</button>
+</div>
+
+<div id="root">
+  <aside id="rail-left">
+    <header>
+      <div>
+        <h1>GÖZ<span>ALTI</span></h1>
+        <div class="sub">MEDIA-INGEST TEST CONSOLE · :8030</div>
+      </div>
+      <button id="rail-collapse" title="collapse street list">«</button>
+    </header>
+    <input id="street-search" type="search" placeholder="filter streets…" autocomplete="off">
+    <div id="street-list"></div>
+  </aside>
+  <button id="rail-expand" title="expand street list" style="display:none">»</button>
+
+  <main id="center">
+    <div id="map">
+      <div id="map-btns">
+        <button id="btn-loc" title="my location → cameras that cover it">LOC</button>
+        <button id="btn-ref" class="on" title="open businesses to duck into (OSM opening_hours)">REF</button>
+        <button id="btn-sat" title="satellite basemap">SAT</button>
+        <button id="btn-3d" title="tilt + rotate">3D</button>
+        <button id="btn-bldg" title="load OSM building extrusions for this view" disabled>BLDG</button>
+        <button id="btn-det" title="toggle detection dots" class="on">DET</button>
+      </div>
+      <div id="click-hint">click map → cameras within 100 m · LOC → your position's camera coverage · camera brightness = pixel activity · green dots = businesses open now</div>
+    </div>
+    <div id="map-handle" title="drag to resize map"></div>
+    <div id="cambar"></div>
+    <div id="viewport">
+      <div id="viewport-empty">CLICK THE MAP OR A STREET</div>
+    </div>
+  </main>
+
+  <aside id="rail-right">
+    <div class="panel">
+      <div class="panel-title">SELECTED CAMERA</div>
+      <div id="cam-empty" class="dim">nothing selected</div>
+      <div id="cam-panel" style="display:none">
+        <div class="diag-row"><span>id</span><b id="c-id">—</b></div>
+        <div class="diag-row"><span>location</span><b id="c-desc">—</b></div>
+        <div class="diag-row"><span>street</span><b id="c-street">—</b></div>
+        <div class="diag-row"><span>mode</span><b id="c-mode">—</b></div>
+        <div class="diag-row"><span>pixel activity</span><b id="c-activity">—</b></div>
+        <div class="diag-row"><span>last person in view</span><b id="c-person">—</b></div>
+        <div class="diag-row"><span>sun</span><b id="c-sun">—</b></div>
+        <div class="diag-row"><span>bearing</span><b id="c-bearing">—</b></div>
+        <div class="diag-row"><span>confidence</span><b id="c-conf">—</b></div>
+        <div class="diag-row"><span>basis</span><b id="c-basis">—</b></div>
+
+        <div class="panel-title" style="margin-top:12px">FOV CALIBRATION</div>
+        <div class="dim">rotate the cone until it matches what the feed shows, then confirm.</div>
+        <div class="dir-grid">
+          <button class="dir-btn" data-rot="-45">−45</button>
+          <button class="dir-btn" data-rot="-15">−15</button>
+          <button class="dir-btn" data-rot="-5">−5</button>
+          <button class="dir-btn" data-rot="5">+5</button>
+          <button class="dir-btn" data-rot="15">+15</button>
+          <button class="dir-btn" data-rot="45">+45</button>
+          <button class="dir-btn" data-rot="180">FLIP</button>
+        </div>
+        <div class="dir-grid" style="grid-template-columns: repeat(4,1fr)">
+          <button class="dir-btn" data-abs="0">N</button>
+          <button class="dir-btn" data-abs="90">E</button>
+          <button class="dir-btn" data-abs="180">S</button>
+          <button class="dir-btn" data-abs="270">W</button>
+        </div>
+        <div class="cal-actions">
+          <button id="btn-confirm" class="act">CONFIRM BEARING</button>
+          <button id="btn-clear" class="act warn2">CLEAR → AUTO</button>
+          <button id="btn-orient" class="act">RUN AUTO LAYERS</button>
+        </div>
+        <img id="sat-thumb" class="sat-thumb" style="display:none" alt="satellite crop">
+        <div class="panel-title" style="margin-top:12px">BEARING LAYERS</div>
+        <div id="c-layers" class="reason dim">—</div>
+
+        <div class="panel-title" style="margin-top:12px">STREET CONTEXT (OSM)</div>
+        <div id="c-streetctx" class="reason dim">—</div>
+
+        <div class="panel-title" style="margin-top:12px">LOCAL CV — CARS + PEOPLE (3D)</div>
+        <div id="c-cv" class="reason dim">focus a camera to start the live loop</div>
+
+        <div class="panel-title" style="margin-top:12px">LIVE DETECTIONS (VLM)</div>
+        <div id="c-detections" class="reason dim">none yet</div>
+        <button id="btn-analyze" class="act" style="margin-top:6px">ANALYZE THIS CAMERA NOW</button>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-title">REFUGE — PLACES TO DUCK INTO</div>
+      <div id="refuge-scope" class="dim">select a camera or street</div>
+      <div id="refuge-head" class="reason" style="margin:6px 0"></div>
+      <div id="refuge-list"></div>
+      <div class="dim" style="margin-top:8px">
+        OSM opening_hours only — places without tagged hours aren't counted.
+        unparseable hours show as “hours?”, not closed.
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-title">DETECTION SWEEP (BFS)</div>
+      <div class="diag-row"><span>state</span><b id="s-state">—</b></div>
+      <div class="diag-row"><span>vlm backend</span><b id="s-backend">—</b></div>
+      <div class="diag-row"><span>pass</span><b id="s-pass">—</b></div>
+      <div class="diag-row"><span>last pass</span><b id="s-time">—</b></div>
+      <div class="diag-row"><span>analyzed</span><b id="s-analyzed">—</b></div>
+      <div class="diag-row"><span>pixel-active</span><b id="s-activity">—</b></div>
+      <div class="cal-actions">
+        <button id="btn-sweep-start" class="act">START</button>
+        <button id="btn-sweep-stop" class="act warn2">STOP</button>
+      </div>
+      <div class="dim" style="margin-top:8px">
+        sweep works without a VLM backend too — it still fetches frames and
+        keeps the pixel-activity flags fresh (dot brightness). snapshots
+        ≥60 s/cam · ≤4 concurrent upstream · 10 s between passes.
+      </div>
+    </div>
+  </aside>
+</div>
+<script src="/static/vendor/maplibre-gl.js"></script>
+<script src="/static/vendor/hls.min.js"></script>
+<script src="/static/app.js"></script>
+</body>
+</html>
