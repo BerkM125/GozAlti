@@ -107,10 +107,21 @@ WALKWAY_FLAGS = {"blocked": "blocked_sidewalk", "narrowed": "narrowed_sidewalk",
                  "no_sidewalk": "no_sidewalk"}
 
 
+def as_list(v):
+    """Models disagree on whether a one-item enum list is a list. Cosmos-Reason1 returns
+    a bare string, which silently iterates as characters if you trust the schema."""
+    if v is None: return []
+    if isinstance(v, str): return [x.strip() for x in v.split(",") if x.strip()]
+    if isinstance(v, list): return [x for x in v if isinstance(x, str)]
+    return []
+
+
 def merge(frame, det, ins, secs, model):
     """Detector counts + VLM reading -> one Observation-shaped record."""
+    events = as_list(ins.get("events"))
+    ins["events"] = events
     flags = []
-    for e in (ins.get("events") or []):
+    for e in events:
         if e in EVENT_FLAGS and EVENT_FLAGS[e] not in flags: flags.append(EVENT_FLAGS[e])
     w = WALKWAY_FLAGS.get(ins.get("walkway_status"))
     if w: flags.append(w)

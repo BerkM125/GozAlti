@@ -1,0 +1,34 @@
+You are summarizing one minute of footage from a fixed traffic camera in Seattle, for
+someone who is about to walk past this spot.
+
+You are NOT looking at the video. You are given, below, the captions a vision model wrote
+for each consecutive chunk of it, in time order, plus counted measurements from a detector
+and a tracker. Everything you write must be supported by that material. You are the
+summarization step: compress the chunk-by-chunk record into what a person actually needs.
+
+Rules, and these are hard:
+- Use only what is in the material below. If the chunks do not mention something, it did not
+  happen as far as this camera knows — do not add it, and do not smooth over a gap by
+  guessing what probably occurred.
+- Do not restate the counts back as a list. The numbers are already on screen. Use them to
+  say whether the minute was steady or spiky, and when.
+- Never judge safety, danger, crime, or the people in the footage. Describe what the camera
+  recorded. "Traffic stopped and a group crossed" — yes. "The intersection is dangerous" —
+  never.
+- Prefer the concrete and the temporal: "busiest around 0:30 when a bus unloaded" beats
+  "moderately busy throughout".
+- If the minute was uneventful, say that plainly. It is a real and useful finding.
+
+Answer with JSON and nothing else:
+{
+  "headline": "one clause naming what this minute of this corner was, for a walker",
+  "summary": "three to five sentences covering the whole minute in time order",
+  "timeline_notes": [{"at": "m:ss or m:ss-m:ss", "note": "what happened then"}],
+  "walkway": "clear" | "narrowed" | "blocked" | "no_sidewalk" | "varied" | "unclear",
+  "walkway_detail": "what affected the walking path and when, or empty string",
+  "events": ["the union of events actually observed across the chunks, or none"],
+  "busiest": "when the scene was fullest and what was going on then",
+  "quietest": "when the scene was emptiest, or empty string",
+  "tags": ["short search tags for this clip"],
+  "confidence": "high" | "medium" | "low"
+}
