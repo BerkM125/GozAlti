@@ -29,6 +29,15 @@ final class Speech: NSObject, ObservableObject {
     private var task: SFSpeechRecognitionTask?
     private var voice: AVSpeechSynthesisVoice?
     private var onFinalTranscript: ((String, Double) -> Void)?
+    private var silenceTimer: Timer?
+    private var lastPartialAt = Date()
+    /// SFSpeechRecognizer will happily keep a session open long after the person has
+    /// stopped talking — it waits for its own end-of-utterance heuristic, which for a
+    /// single word like "no" can take many seconds or never fire at all. That is why
+    /// answering did nothing. We finalise ourselves once the transcript has been quiet.
+    private let silenceCutoff: TimeInterval = 1.2
+    private let hardCutoff: TimeInterval = 8.0
+    private var listenStartedAt = Date()
 
     override init() {
         super.init()
@@ -101,6 +110,7 @@ final class Speech: NSObject, ObservableObject {
         guard !listening else { return }
         onFinalTranscript = onFinal
         heard = ""; confidence = 0
+        lastPartialAt = Date(); listenStartedAt = Date()
 
         do {
             let session = AVAudioSession.sharedInstance()
@@ -128,6 +138,7 @@ final class Speech: NSObject, ObservableObject {
             engine.prepare()
             try engine.start()
             listening = true
+            startSilenceWatch()
 
             task = recognizer?.recognitionTask(with: req) { [weak self] result, error in
                 guard let self else { return }
@@ -141,14 +152,8 @@ final class Speech: NSObject, ObservableObject {
                         let mean = segs.isEmpty ? 0
                             : Double(segs.map(\.confidence).reduce(0, +)) / Double(segs.count)
                         self.confidence = mean
-                        if result.isFinal {
-                            self.stopListening()
-                            // A final result with zero confidence happens on very short
-                            // utterances; treat it as heard-but-unsure rather than 0,
-                            // and let the state machine's threshold decide.
-                            self.onFinalTranscript?(best.formattedString,
-                                                    mean > 0 ? mean : 0.5)
-                        }
+                        if !best.formattedString.isEmpty { self.lastPartialAt = Date() }
+                        if result.isFinal { self.finalizeNow() }
                     }
                     if error != nil { self.stopListening() }
                 }
@@ -159,7 +164,37 @@ final class Speech: NSObject, ObservableObject {
         }
     }
 
+    /// Finalise on our own terms: a short quiet gap after speech, or a hard ceiling so a
+    /// noisy street cannot hold the mic open forever.
+    private func startSilenceWatch() {
+        silenceTimer?.invalidate()
+        silenceTimer = Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) { [weak self] _ in
+            Task { @MainActor in
+                guard let self, self.listening else { return }
+                let quiet = Date().timeIntervalSince(self.lastPartialAt)
+                let total = Date().timeIntervalSince(self.listenStartedAt)
+                let spoke = !self.heard.trimmingCharacters(in: .whitespaces).isEmpty
+                if (spoke && quiet >= self.silenceCutoff) || total >= self.hardCutoff {
+                    self.finalizeNow()
+                }
+            }
+        }
+    }
+
+    private func finalizeNow() {
+        let text = heard.trimmingCharacters(in: .whitespaces)
+        // Partial results carry no per-segment confidence yet. Treat a clearly-heard
+        // partial as moderately confident and let the state machine's own threshold
+        // decide — it refuses anything under 0.55 and re-asks.
+        let conf = confidence > 0 ? confidence : (text.isEmpty ? 0.0 : 0.7)
+        stopListening()
+        guard !text.isEmpty else { return }
+        onFinalTranscript?(text, conf)
+        onFinalTranscript = nil
+    }
+
     func stopListening() {
+        silenceTimer?.invalidate(); silenceTimer = nil
         guard listening || engine.isRunning else { return }
         engine.stop()
         engine.inputNode.removeTap(onBus: 0)

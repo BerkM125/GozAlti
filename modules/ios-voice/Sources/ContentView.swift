@@ -7,9 +7,9 @@ struct GozAltiVoiceApp: App {
 
 struct ContentView: View {
     @StateObject private var speech = Speech()
-    @StateObject private var dlg = DialogueClient()
+    @StateObject private var dlg = LocalDialogue()
+    @StateObject private var caller = Caller()
     @State private var status = "Set your laptop's address, then press a trigger."
-    @AppStorage("baseURL") private var savedURL = "http://172.16.95.111:8050"
     @AppStorage("contact") private var savedContact = "Dhruv"
     @AppStorage("number") private var savedNumber = ""
 
@@ -37,9 +37,9 @@ struct ContentView: View {
         }
         .preferredColorScheme(.dark)
         .task {
-            dlg.baseURL = savedURL
             dlg.contact = savedContact
-            dlg.contactNumber = savedNumber
+            caller.number = savedNumber
+            caller.contact = savedContact
             await speech.requestPermissions()
         }
     }
@@ -48,24 +48,20 @@ struct ContentView: View {
         VStack(alignment: .leading, spacing: 2) {
             Text("GÖZALTI · VOICE").font(.system(size: 13, weight: .semibold, design: .monospaced))
                 .kerning(2).foregroundStyle(go)
-            Text(dlg.state.replacingOccurrences(of: "_", with: " "))
+            Text(dlg.state.rawValue.replacingOccurrences(of: "_", with: " "))
                 .font(.system(size: 11, design: .monospaced))
                 .foregroundStyle(dlg.escalated ? bad : .secondary)
         }
     }
 
     private var settings: some View {
-        VStack(spacing: 8) {
-            field("laptop address", text: Binding(
-                get: { dlg.baseURL },
-                set: { dlg.baseURL = $0; savedURL = $0 }))
-            HStack(spacing: 8) {
-                field("who to call", text: Binding(
-                    get: { dlg.contact }, set: { dlg.contact = $0; savedContact = $0 }))
-                field("number", text: Binding(
-                    get: { dlg.contactNumber },
-                    set: { dlg.contactNumber = $0; savedNumber = $0 }), keyboard: .phonePad)
-            }
+        HStack(spacing: 8) {
+            field("who to call", text: Binding(
+                get: { dlg.contact },
+                set: { dlg.contact = $0; caller.contact = $0; savedContact = $0 }))
+            field("number", text: Binding(
+                get: { caller.number },
+                set: { caller.number = $0; savedNumber = $0 }), keyboard: .phonePad)
         }
     }
 
@@ -101,7 +97,7 @@ struct ContentView: View {
             if let p = speech.permissionProblem {
                 Text(p).font(.system(size: 12, design: .monospaced)).foregroundStyle(bad)
             }
-            if let e = dlg.lastError {
+            if let e = caller.lastError {
                 Text(e).font(.system(size: 11, design: .monospaced)).foregroundStyle(bad)
             }
         }
@@ -109,7 +105,7 @@ struct ContentView: View {
 
     private var micButton: some View {
         Button {
-            if dlg.awaitingAnswer { startListening() }
+            if dlg.state.awaitingAnswer { startListening() }
         } label: {
             Text(speech.listening ? "listening — just answer"
                  : speech.speaking ? "speaking…" : "tap to answer")
@@ -118,22 +114,22 @@ struct ContentView: View {
                 .background(speech.listening ? bad : go, in: RoundedRectangle(cornerRadius: 12))
                 .foregroundStyle(Color.black)
         }
-        .disabled(!dlg.awaitingAnswer)
-        .opacity(dlg.awaitingAnswer ? 1 : 0.4)
+        .disabled(!dlg.state.awaitingAnswer)
+        .opacity(dlg.state.awaitingAnswer ? 1 : 0.4)
     }
 
     private var triggers: some View {
         HStack(spacing: 8) {
-            btn("simulate off-path") { Task { await begin("offpath") } }
-            btn("keyword trigger") { Task { await begin("keyword") } }
+            btn("simulate off-path") { begin("offpath") }
+            btn("keyword trigger") { begin("keyword") }
         }
     }
 
     private var answers: some View {
         HStack(spacing: 8) {
-            btn("“yes”") { Task { await answer("yes", 0.95) } }.disabled(!dlg.awaitingAnswer)
-            btn("“no”") { Task { await answer("no", 0.95) } }.disabled(!dlg.awaitingAnswer)
-            btn("cancel", tint: bad) { Task { await dlg.cancel(); speech.stopListening() } }
+            btn("“yes”") { answer("yes", 0.95) }.disabled(!dlg.state.awaitingAnswer)
+            btn("“no”") { answer("no", 0.95) }.disabled(!dlg.state.awaitingAnswer)
+            btn("cancel", tint: bad) { speech.stopListening(); dlg.cancel(); speak() }
         }
     }
 
@@ -152,9 +148,9 @@ struct ContentView: View {
             if !dlg.turns.isEmpty {
                 Text("TRANSCRIPT").font(.system(size: 10, design: .monospaced))
                     .kerning(1.5).foregroundStyle(.secondary)
-                ForEach(Array(dlg.turns.enumerated()), id: \.offset) { _, t in
-                    Text("\(t["from"] as? String ?? "") → \(t["to"] as? String ?? "")   "
-                         + "“\(t["heard"] as? String ?? "")”  [\(t["intent"] as? String ?? "")]")
+                ForEach(dlg.turns) { t in
+                    Text("\(t.from.rawValue) → \(t.to.rawValue)   "
+                         + "“\(t.heard)” \(String(format: "%.2f", t.confidence)) [\(t.intent.rawValue)]")
                         .font(.system(size: 11, design: .monospaced))
                         .foregroundStyle(.secondary)
                 }
@@ -167,7 +163,7 @@ struct ContentView: View {
             Text("recognition: \(speech.onDevice ? "on-device (audio never leaves this phone)" : "server-backed")")
                 .foregroundStyle(speech.onDevice ? go : .orange)
             Text("voice: \(speech.voiceName)")
-            Text("The decision is made by the state machine on your laptop, never by a language model. Two explicit answers are required; silence never escalates; cancel always wins. We call the person named above — never emergency services.")
+            Text("The decision is made on this phone by a deterministic state machine, never by a language model. Two explicit answers are required; silence never escalates; cancel always wins. We call the person named above — never emergency services.")
                 .padding(.top, 4)
         }
         .font(.system(size: 10, design: .monospaced))
@@ -176,13 +172,13 @@ struct ContentView: View {
 
     // MARK: flow
 
-    private func begin(_ trigger: String) async {
-        await dlg.start(trigger: trigger)
+    private func begin(_ trigger: String) {
+        dlg.start(trigger: trigger)
         speak()
     }
 
-    private func answer(_ text: String, _ conf: Double) async {
-        await dlg.hear(text, confidence: conf)
+    private func answer(_ text: String, _ conf: Double) {
+        dlg.hear(text, confidence: conf)
         speak()
     }
 
@@ -192,8 +188,8 @@ struct ContentView: View {
         let line = dlg.say
         speech.say(line) {
             if dlg.escalated {
-                status = dlg.placeCall()
-            } else if dlg.awaitingAnswer {
+                status = caller.place()
+            } else if dlg.state.awaitingAnswer {
                 startListening()
             }
         }
