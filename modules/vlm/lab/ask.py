@@ -91,7 +91,7 @@ def main():
             r = draw(img, text, a.model, HERE / "out")
             if r: print(f"  -> {r}")
         with open(HERE / "log.jsonl", "a") as fh:
-            fh.write(json.dumps({"ts": time.strftime("%Y-%m-%dT%H:%M:%S"), "image": img, "model": a.model,
+            fh.write(json.dumps({"ts": time.strftime("%Y-%m-%dT%H:%M:%S"), "image": str(src), "sent": str(img), "model": a.model,
                                  "prompt": prompt[:80], "seconds": secs, "response": text}) + "\n")
         print()
 
