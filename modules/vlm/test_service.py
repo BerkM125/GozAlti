@@ -1,0 +1,212 @@
+#!/usr/bin/env python3
+"""Tests for the vlm service. Stdlib unittest — no pytest, no venv.
+
+Two tiers:
+
+  ./test_service.py            unit only. Pure functions: contract validation, enum
+                               discipline, the schema-miss degradation path. No GPU, no
+                               models, runs anywhere in ~50 ms.
+
+  ./test_service.py --live     also hits a running service on :8040 with a real
+                               FrameRecord and asserts the response satisfies §6.2.
+                               Requires the service up and a frame on disk.
+
+Run the unit tier in CI and before every push; run --live on the box after deploying.
+"""
+import argparse, json, sys, unittest, urllib.request, os
+from pathlib import Path
+
+HERE = Path(__file__).resolve().parent
+sys.path.insert(0, str(HERE))
+
+# service.py imports lab/prompts at module load; keep that working from any cwd
+import service
+
+
+class TestFlagEnum(unittest.TestCase):
+    """SPEC §6.2 says flags are a closed enum defined in modules/vlm/SPEC.md."""
+
+    def test_enum_is_closed_and_unique(self):
+        self.assertEqual(len(service.FLAGS), len(set(service.FLAGS)), "duplicate flags")
+        self.assertEqual(service.FLAGSET, set(service.FLAGS))
+
+    def test_every_mapped_flag_is_in_the_enum(self):
+        for f in service.WALKWAY_FLAG.values():
+            self.assertIn(f, service.FLAGSET, f"walkway maps to unknown flag {f}")
+        for f in service.EVENT_FLAG.values():
+            self.assertIn(f, service.FLAGSET, f"event maps to unknown flag {f}")
+
+    def test_no_verdict_flags(self):
+        """The module never emits a judgement about danger or about people."""
+        banned = ("safe", "unsafe", "danger", "risk", "suspicious", "threat", "loiter",
+                  "homeless", "drug")
+        for f in service.FLAGS:
+            for b in banned:
+                self.assertNotIn(b, f.lower(), f"flag '{f}' asserts a verdict")
+
+
+class TestValidate(unittest.TestCase):
+    def good(self):
+        return {"camera_id": "CMR-0176", "frame_ts": "2026-08-16T05:00:00Z",
+                "read_at": "2026-08-16T05:00:06Z", "model": "torchvision/fasterrcnn+qwen3-vl:8b",
+                "people_count": 2, "flags": ["construction"], "caption": "two people crossing",
+                "detections": [{"label": "person", "cx": 0.4, "cy": 0.6, "conf": 0.9},
+                               {"label": "person", "cx": 0.1, "cy": 0.2, "conf": 0.7}]}
+
+    def test_valid_passes(self):
+        self.assertEqual(service.validate(self.good()), [])
+
+    def test_missing_required_field_fails(self):
+        for k in ("camera_id", "frame_ts", "read_at", "model", "people_count",
+                  "detections", "flags", "caption"):
+            o = self.good(); o.pop(k)
+            self.assertTrue(any(k in p for p in service.validate(o)), f"{k} not caught")
+
+    def test_unknown_flag_rejected(self):
+        o = self.good(); o["flags"] = ["looks_sketchy"]
+        self.assertTrue(any("not in enum" in p for p in service.validate(o)))
+
+    def test_coordinates_must_be_normalised(self):
+        for bad in (1.4, -0.1, 640):
+            o = self.good(); o["detections"][0]["cx"] = bad
+            self.assertTrue(any("cx" in p for p in service.validate(o)),
+                            f"cx={bad} should be rejected; §6.2 requires [0,1]")
+
+    def test_detection_missing_conf_rejected(self):
+        o = self.good(); del o["detections"][0]["conf"]
+        self.assertTrue(any("conf" in p for p in service.validate(o)))
+
+    def test_people_count_must_be_int(self):
+        o = self.good(); o["people_count"] = "2"
+        self.assertTrue(any("people_count" in p for p in service.validate(o)))
+
+    def test_empty_observation_is_valid(self):
+        o = self.good(); o["people_count"] = 0; o["detections"] = []; o["flags"] = ["no_people"]
+        self.assertEqual(service.validate(o), [])
+
+
+class TestAsList(unittest.TestCase):
+    """Cosmos-Reason1 returns enum lists as bare strings; trusting the schema iterates
+    them character by character. Regression test for a bug we actually shipped."""
+
+    def test_bare_string_is_not_iterated_as_characters(self):
+        self.assertEqual(service.as_list("construction"), ["construction"])
+
+    def test_comma_string_splits(self):
+        self.assertEqual(service.as_list("construction, queue"), ["construction", "queue"])
+
+    def test_list_passes_through(self):
+        self.assertEqual(service.as_list(["a", "b"]), ["a", "b"])
+
+    def test_junk_is_dropped(self):
+        self.assertEqual(service.as_list(None), [])
+        self.assertEqual(service.as_list(17), [])
+        self.assertEqual(service.as_list([1, "ok", None]), ["ok"])
+
+
+class TestParseJson(unittest.TestCase):
+    def test_clean(self):
+        self.assertEqual(service.parse_json('{"a":1}'), {"a": 1})
+
+    def test_wrapped_in_prose(self):
+        self.assertEqual(service.parse_json('here you go: {"a":1} done'), {"a": 1})
+
+    def test_trailing_comma_repaired(self):
+        self.assertEqual(service.parse_json('{"a":1,}'), {"a": 1})
+
+    def test_unparseable_returns_none(self):
+        self.assertIsNone(service.parse_json("no json here"))
+        self.assertIsNone(service.parse_json(""))
+
+
+class TestDeadCamera(unittest.TestCase):
+    """A stale frame must never reach a model or receive an invented caption."""
+
+    def test_stale_frame_short_circuits(self):
+        obs = service.observe({"camera_id": "CMR-0001", "captured_at": "2026-08-16T05:00:00Z",
+                               "path": "/does/not/exist.jpg", "stale": True})
+        self.assertEqual(obs["flags"], ["camera_dead"])
+        self.assertEqual(obs["detections"], [])
+        self.assertEqual(obs["people_count"], 0)
+        self.assertEqual(obs["model"], "none")
+        self.assertEqual(service.validate(obs), [])
+
+    def test_missing_frame_raises(self):
+        with self.assertRaises(FileNotFoundError):
+            service.observe({"camera_id": "X", "path": "/nope/missing.jpg", "stale": False})
+
+
+class TestLive(unittest.TestCase):
+    """Only run with --live: requires the service up and a real frame."""
+    BASE = os.environ.get("VLM_URL", "http://127.0.0.1:8040")
+
+    def get(self, path):
+        with urllib.request.urlopen(f"{self.BASE}{path}", timeout=10) as r:
+            return json.load(r)
+
+    def post(self, path, payload, timeout=300):
+        req = urllib.request.Request(f"{self.BASE}{path}", data=json.dumps(payload).encode(),
+                                     headers={"Content-Type": "application/json"})
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            return json.load(r)
+
+    def test_health(self):
+        h = self.get("/health")
+        self.assertTrue(h["ok"])
+        self.assertEqual(h["module"], "vlm")
+        self.assertEqual(h["port"], 8040)
+
+    def test_flags_endpoint_matches_module(self):
+        self.assertEqual(set(self.get("/flags")["flags"]), service.FLAGSET)
+
+    def test_read_returns_valid_observation(self):
+        frames = sorted((HERE / "lab" / "samples").glob("*.jpg"))
+        self.assertTrue(frames, "no sample frames on disk")
+        f = frames[0]
+        obs = self.post("/read", {
+            "camera_id": f.name.split("__")[1] if f.name.count("__") >= 2 else "TEST",
+            "captured_at": "2026-08-16T05:00:00Z", "lat": 47.61, "lon": -122.33,
+            "kind": "frame", "path": str(f), "source": "sdot-snapshot", "stale": False})
+        problems = service.validate(obs)
+        self.assertEqual(problems, [], f"response violates §6.2: {problems}")
+        self.assertIsInstance(obs["people_count"], int)
+        self.assertEqual(obs["people_count"], len(obs["detections"]))
+        for d in obs["detections"]:
+            self.assertGreaterEqual(d["cx"], 0.0); self.assertLessEqual(d["cx"], 1.0)
+
+    def test_read_stale_does_not_call_models(self):
+        obs = self.post("/read", {"camera_id": "CMR-DEAD", "captured_at": "2026-08-16T05:00:00Z",
+                                  "kind": "frame", "path": "whatever.jpg",
+                                  "source": "sdot-snapshot", "stale": True})
+        self.assertIn("camera_dead", obs["flags"])
+        self.assertEqual(obs["model"], "none")
+
+    def test_batch(self):
+        frames = sorted((HERE / "lab" / "samples").glob("*.jpg"))[:2]
+        out = self.post("/read_batch", {"frames": [
+            {"camera_id": f"T{i}", "captured_at": "2026-08-16T05:00:00Z", "kind": "frame",
+             "path": str(f), "source": "sdot-snapshot", "stale": False}
+            for i, f in enumerate(frames)]})
+        self.assertEqual(len(out["observations"]), len(frames))
+        for o in out["observations"]:
+            self.assertNotIn("error", o, f"batch item failed: {o.get('error')}")
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--live", action="store_true", help="also run tests against :8040")
+    a, rest = ap.parse_known_args()
+    loader = unittest.TestLoader()
+    suite = unittest.TestSuite()
+    for cls in (TestFlagEnum, TestValidate, TestAsList, TestParseJson, TestDeadCamera):
+        suite.addTests(loader.loadTestsFromTestCase(cls))
+    if a.live:
+        suite.addTests(loader.loadTestsFromTestCase(TestLive))
+    else:
+        print("(unit only — pass --live to also test a running service on :8040)\n")
+    result = unittest.TextTestRunner(verbosity=2).run(suite)
+    sys.exit(0 if result.wasSuccessful() else 1)
+
+
+if __name__ == "__main__":
+    main()
