@@ -13,7 +13,7 @@ Reports, per prediction file:
 If the key has no obstruction positives it says so and refuses to report recall,
 rather than printing a hollow accuracy figure.
 """
-import json, sys, collections
+import argparse, json, sys, collections
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -51,7 +51,11 @@ def load_preds(path):
 
 
 def main():
-    key = load_key()
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--labels", default="labels.jsonl")
+    ap.add_argument("--preds", default="insight*.jsonl", help="glob of prediction files")
+    a = ap.parse_args()
+    key = load_key(a.labels)
     dist = collections.Counter(key.values())
     n = len(key)
     print(f"ANSWER KEY — {n} frames labelled by hand\n")
@@ -74,7 +78,7 @@ def main():
     else:
         print(f"  MISS RATE: measurable on {pos} positives.")
 
-    files = sorted(HERE.glob("insight*.jsonl"))
+    files = sorted(HERE.glob(a.preds))
     if not files:
         print("\nno insight*.jsonl prediction files to score")
         return
