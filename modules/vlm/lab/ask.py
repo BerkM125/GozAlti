@@ -30,17 +30,24 @@ def prep(image, edge):
         im.save(out, quality=92)
     return out
 
-def ask(model, prompt, image, json_mode, max_tokens):
+def ask(model, prompt, image, json_mode, max_tokens, think=False):
     body = {"model": model, "prompt": prompt, "stream": False, "keep_alive": "24h",
             "images": [base64.b64encode(Path(image).read_bytes()).decode()],
-            "options": {"temperature": 0, "num_predict": max_tokens}}
+            "options": {"temperature": 0, "num_predict": max_tokens},
+            # thinking models (qwen3-vl, gemma4?) put tokens in `thinking` and leave `response`
+            # empty unless told not to; we want the answer, not the monologue
+            "think": think}
     if json_mode: body["format"] = "json"
     req = urllib.request.Request(f"{OLLAMA}/api/generate", data=json.dumps(body).encode(),
                                  headers={"Content-Type": "application/json"})
     t0 = time.time()
     with urllib.request.urlopen(req, timeout=600) as r:
         out = json.load(r)
-    return out.get("response", ""), round(time.time() - t0, 2), out
+    text = out.get("response", "")
+    if not text.strip() and out.get("thinking"):
+        text = out["thinking"]  # show *something* rather than a blank block
+        out["_note"] = "response empty; showing thinking — pass --think or the model ignored think=false"
+    return text, round(time.time() - t0, 2), out
 
 def draw(image, text, model, outdir):
     """If the reply is JSON with people (bbox_2d or point_2d), draw boxes and/or a dot per person."""
@@ -88,13 +95,15 @@ def main():
     ap.add_argument("--draw", action="store_true", help="draw boxes/dots if reply has bbox_2d")
     ap.add_argument("-n", "--max-tokens", type=int, default=512)
     ap.add_argument("--edge", type=int, default=0, help="resize long edge to N (multiple of 28) before sending; 0 = send file as-is")
+    ap.add_argument("--think", action="store_true", help="let thinking models think (slower; default off)")
     a = ap.parse_args()
     prompt = a.prompt or (Path(a.prompt_file).read_text() if a.prompt_file else
               "Describe what is visible in this traffic camera frame. Count the people you can actually see.")
     for src in a.images:
         img = prep(src, a.edge)
-        text, secs, raw = ask(a.model, prompt, img, a.json, a.max_tokens)
+        text, secs, raw = ask(a.model, prompt, img, a.json, a.max_tokens, a.think)
         print(f"=== {src}  [{a.model}  {secs}s  {raw.get('eval_count','?')} tok  edge={a.edge or 'orig'}]")
+        if raw.get("_note"): print(f"  ({raw['_note']})")
         print(text.strip())
         if a.draw:
             r = draw(img, text, a.model, HERE / "out")
