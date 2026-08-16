@@ -267,8 +267,17 @@ def _hsv(h, s, v):
 
 
 def draw(src, people, note, out_path, tracks_by_index=None, show_skeleton=True,
-         show_mask=True, trails=None):
-    """Annotate one frame. `tracks_by_index[i]` = track id for people[i], if tracked."""
+         show_mask=True, trails=None, skeleton_min_px=54, label_min_px=22,
+         centroid_min_px=34):
+    """Annotate one frame. `tracks_by_index[i]` = track id for people[i], if tracked.
+
+    Every mark scales with the box it belongs to. The first version drew a fixed
+    4 px centroid dot and 2 px keypoints on every detection, which was fine on a
+    close pedestrian and completely covered a distant one — on a 720x480 SDOT frame
+    a person at the far crosswalk is about 30 px tall, so the annotation was hiding
+    the thing it was annotating. Small boxes now get a thin outline and nothing else;
+    skeletons and centroids only appear once there is room for them to mean anything.
+    """
     from PIL import Image, ImageDraw
     with Image.open(src) as im:
         im = im.convert("RGB")
@@ -291,27 +300,34 @@ def draw(src, people, note, out_path, tracks_by_index=None, show_skeleton=True,
             tid = tracks_by_index[i] if tracks_by_index else None
             col = track_color(tid) if tid is not None else GREEN
             x1, y1, x2, y2 = p["box"]
-            d.rectangle([x1, y1, x2, y2], outline=col, width=3)
-            d.rectangle([x1 + 1, y1 + 1, x2 - 1, y2 - 1], outline=(16, 40, 26), width=1)
-            cx, cy = p["cx"] * im.width, p["cy"] * im.height
-            d.ellipse([cx - 4, cy - 4, cx + 4, cy + 4], fill=RED, outline="white", width=1)
-            if show_skeleton and p.get("keypoints"):
+            bh = y2 - y1
+            lw = 1 if bh < 30 else 2 if bh < 80 else 3
+            d.rectangle([x1, y1, x2, y2], outline=col, width=lw)
+            if bh >= centroid_min_px:
+                cx, cy = p["cx"] * im.width, p["cy"] * im.height
+                r = 2 if bh < 90 else 3
+                d.ellipse([cx - r, cy - r, cx + r, cy + r], fill=RED)
+            if show_skeleton and p.get("keypoints") and bh >= skeleton_min_px:
                 kp = p["keypoints"]
                 for a, b in SKELETON:
                     pa, pb = kp[KP[a]], kp[KP[b]]
                     if pa[2] >= KP_VISIBLE and pb[2] >= KP_VISIBLE:
-                        d.line([pa[0], pa[1], pb[0], pb[1]], fill=AMBER, width=2)
-                for x, y, s in kp:
-                    if s >= KP_VISIBLE:
-                        d.ellipse([x - 2, y - 2, x + 2, y + 2], fill=(255, 255, 255))
-            tag = f"#{tid}" if tid is not None else f"{i + 1}"
-            if p.get("facing"):
-                tag += " " + {"toward_camera": "^", "away_from_camera": "v",
-                              "frame_left": "<", "frame_right": ">",
-                              "side_on": "|"}.get(p["facing"], "")
-            d.text((x1 + 2, max(0, y1 - 11)), f"{tag} {p['conf']:.2f}", fill=col)
+                        d.line([pa[0], pa[1], pb[0], pb[1]], fill=AMBER, width=1)
+                if bh >= skeleton_min_px * 1.6:
+                    for x, y, sc in kp:
+                        if sc >= KP_VISIBLE:
+                            d.ellipse([x - 1, y - 1, x + 1, y + 1], fill=(255, 255, 255))
+            if bh >= label_min_px:
+                tag = f"#{tid}" if tid is not None else f"{i + 1}"
+                if p.get("facing"):
+                    tag += {"toward_camera": "\u2191", "away_from_camera": "\u2193",
+                            "frame_left": "\u2190", "frame_right": "\u2192",
+                            "side_on": "|"}.get(p["facing"], "")
+                d.text((x1, max(0, y1 - 10)), tag, fill=col)
         if note:
-            d.rectangle([0, 0, min(im.width, 10 + 7 * len(note)), 20], fill=(0, 0, 0))
-            d.text((5, 4), note, fill=(255, 255, 255))
+            # bottom bar: the SDOT cameras burn their own caption into the TOP of the frame
+            w = min(im.width, 10 + 6 * len(note))
+            d.rectangle([0, im.height - 18, w, im.height], fill=(0, 0, 0))
+            d.text((5, im.height - 14), note, fill=(255, 255, 255))
         Path(out_path).parent.mkdir(parents=True, exist_ok=True)
         im.save(out_path, quality=88)
