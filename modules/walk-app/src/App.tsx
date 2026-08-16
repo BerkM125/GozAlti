@@ -293,7 +293,8 @@ export default function App() {
         let res = await fetchCameraCv(cid, { backend: "detlib", force: true });
         if (cvPassToken.current !== token) return;
         if (isUnavailable(res) || !res.ok) {
-          const retry = await fetchCameraCv(cid);
+          // detlib down is not "no CV": the local yolo lane still answers.
+          const retry = await fetchCameraCv(cid, { backend: "yolo" });
           if (cvPassToken.current !== token || isUnavailable(retry)) continue;
           res = retry;
         }

@@ -127,7 +127,7 @@ export function stopLivePath(pathId: string): void {
  */
 export const fetchCameraCv = (
   cameraId: string,
-  opts?: { backend?: "detlib"; force?: boolean },
+  opts?: { backend?: "detlib" | "yolo"; force?: boolean },
 ): Promise<CvResult | Unavailable> => {
   const q = new URLSearchParams();
   if (opts?.backend) q.set("backend", opts.backend);
