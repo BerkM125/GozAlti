@@ -1,0 +1,111 @@
+/*
+ * Glass design system. Light only.
+ *
+ * Structure follows the "Precision Utility" system: translucent panels floating
+ * over the live map, so the interface never fully covers the thing it describes.
+ * Depth comes from blur and a hairline edge, not from heavy drop shadows.
+ *
+ * Colour values are Apple's system palette rather than approximations, so the
+ * blue reads as the same blue an iOS user already knows:
+ *
+ *   #007AFF  systemBlue     interactive only - buttons, active toggles, links
+ *   #34C759  systemGreen    the recommendation: the safer route, a healthy feed
+ *   #FF9500  systemOrange   flagged or degraded: unmapped data, a stale read
+ *   #FF3B30  systemRed      RESERVED: a live alert, or a refusal
+ *
+ * Four meanings, four colours. Blue is chrome and never carries meaning on the
+ * map; green is the only colour the recommended route wears. Camera markers stay
+ * neutral on purpose, because an accent on every block would spend the attention
+ * that a live alert depends on.
+ *
+ * Greys are Apple's too: #F2F2F7 (systemGray6) grounds the app, #8E8E93
+ * (systemGray) is the muted text, and separators are the standard translucent
+ * rgb(60 60 67 / .29).
+ */
+
+:root {
+  color-scheme: light;
+
+  --sans: "Inter", -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", system-ui, sans-serif;
+  --mono: ui-monospace, "SF Mono", "JetBrains Mono", "IBM Plex Mono", Menlo, monospace;
+
+  /* -- surfaces ------------------------------------------------------------ */
+  --canvas: #f2f2f7; /* systemGray6, only seen behind the map */
+  --surface: #ffffff;
+  --surface-2: #f2f2f7;
+  --surface-3: #e5e5ea; /* systemGray5 */
+  --scrim: rgb(0 0 0 / 0.28);
+
+  /* -- glass ---------------------------------------------------------------
+     Two tiers. `glass` is chrome that sits on the map; `glass-strong` is for
+     sheets, which carry body text and need more opacity to stay legible over a
+     busy frame. Saturation is boosted so colour under the panel stays alive
+     rather than going milky. */
+  --glass: rgb(255 255 255 / 0.72);
+  --glass-strong: rgb(255 255 255 / 0.88);
+  --glass-blur: blur(24px) saturate(180%);
+  --glass-blur-strong: blur(40px) saturate(180%);
+  --glass-edge: rgb(255 255 255 / 0.6); /* inner highlight, the lit rim */
+  --glass-line: rgb(0 0 0 / 0.07); /* outer hairline */
+
+  /* -- text ---------------------------------------------------------------- */
+  --fg: #1c1c1e; /* label */
+  --fg-dim: #3c3c43; /* secondaryLabel at full opacity */
+  --fg-mute: #8e8e93; /* systemGray, 4.6:1 on white */
+  --fg-inverse: #ffffff;
+
+  --line: rgb(60 60 67 / 0.29); /* separator */
+  --line-strong: rgb(60 60 67 / 0.5);
+
+  /* -- meaning ------------------------------------------------------------- */
+  --accent: #007aff; /* systemBlue */
+  --accent-press: #0062cc;
+  --accent-soft: #e5f0ff;
+
+  --recommend: #34c759; /* systemGreen */
+  --recommend-text: #248a3d; /* 4.6:1 on white - the swatch itself is too light for text */
+  --recommend-soft: #e3f8e9;
+
+  --flag: #ff9500; /* systemOrange */
+  --flag-text: #995700; /* 4.9:1 on white */
+  --flag-soft: #fff2e0;
+
+  --alert: #ff3b30; /* systemRed - RESERVED */
+  --alert-text: #c00d02; /* 5.1:1 on white */
+  --alert-soft: #ffe8e6;
+
+  --direct: #8e8e93; /* the plain shortest route, deliberately quiet */
+
+  /* -- detection classes ---------------------------------------------------
+     Four families rather than eleven hues; shape carries the rest. */
+  --class-person: #1c1c1e;
+  --class-vehicle: #5856d6; /* systemIndigo - informational, not urgent */
+  --class-obstruction: #ff9500;
+  --class-other: #8e8e93;
+
+  /* -- form ---------------------------------------------------------------- */
+  --r-sm: 8px;
+  --r-md: 12px;
+  --r-lg: 16px;
+  --r-xl: 22px;
+  --r-full: 999px;
+
+  --tap: 44px; /* Apple's minimum, and this is used outdoors one-handed */
+  --dur: 200ms;
+  --ease: cubic-bezier(0.32, 0.72, 0, 1); /* the iOS sheet curve */
+
+  /* Soft and wide, never a hard dark edge. */
+  --shadow-1: 0 1px 2px rgb(0 0 0 / 0.04), 0 4px 16px rgb(0 0 0 / 0.08);
+  --shadow-2: 0 2px 8px rgb(0 0 0 / 0.06), 0 16px 48px rgb(0 0 0 / 0.16);
+}
+
+/*
+ * The whole system leans on backdrop-filter. Where it is unsupported the panels
+ * fall back to near-opaque white so text never lands on bare map.
+ */
+@supports not (backdrop-filter: blur(1px)) {
+  :root {
+    --glass: rgb(255 255 255 / 0.96);
+    --glass-strong: rgb(255 255 255 / 0.98);
+  }
+}

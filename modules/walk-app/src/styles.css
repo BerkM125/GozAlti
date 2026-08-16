@@ -1,0 +1,854 @@
+@import "./theme.css";
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--canvas);
+  color: var(--fg);
+  font-family: var(--sans);
+  font-size: 15px;
+  line-height: 1.45;
+  letter-spacing: -0.01em;
+  -webkit-font-smoothing: antialiased;
+  overscroll-behavior: none;
+  touch-action: manipulation; /* the map owns gestures; the page never scrolls */
+}
+
+button {
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.mono {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+}
+
+.app {
+  position: relative;
+  height: 100%;
+  overflow: hidden;
+}
+
+.map {
+  position: absolute;
+  inset: 0;
+}
+
+/* --------------------------------------------------------------- glass base */
+
+/*
+ * One rule every floating panel inherits. Panels sit *on* the map rather than
+ * covering it, which is the whole point of the treatment: the inner highlight
+ * reads as a lit rim and the hairline keeps the edge crisp against pale ground.
+ */
+.glass {
+  background: var(--glass);
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--glass-line);
+  box-shadow:
+    inset 0 1px 0 var(--glass-edge),
+    var(--shadow-1);
+}
+
+/* -------------------------------------------------------------------- chrome */
+
+.topbar {
+  position: absolute;
+  z-index: 4;
+  top: calc(env(safe-area-inset-top) + 10px);
+  left: 12px;
+  right: 68px; /* clear of the control rail */
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 10px 9px 14px;
+  border-radius: var(--r-full);
+}
+
+.wordmark {
+  flex: 1;
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+.text-btn {
+  background: rgb(120 120 128 / 0.12);
+  border: none;
+  border-radius: var(--r-full);
+  padding: 6px 13px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--accent);
+  min-height: 30px;
+}
+
+.text-btn:active {
+  background: rgb(120 120 128 / 0.2);
+}
+
+.chip {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 4px 9px;
+  border-radius: var(--r-full);
+  letter-spacing: 0;
+}
+
+.chip-flag {
+  background: var(--flag-soft);
+  color: var(--flag-text);
+}
+
+/* ------------------------------------------------------------------ controls */
+
+.controls {
+  position: absolute;
+  z-index: 4;
+  right: 12px;
+  top: calc(env(safe-area-inset-top) + 66px);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+/* Circular, per the system's rule that floating HUD toggles are round while
+   static data panels are rounded rectangles. */
+.ctrl {
+  position: relative;
+  width: var(--tap);
+  height: var(--tap);
+  display: grid;
+  place-items: center;
+  border-radius: var(--r-full);
+  color: var(--fg-dim);
+  font-size: 13px;
+  font-weight: 600;
+  transition:
+    background var(--dur) var(--ease),
+    color var(--dur) var(--ease),
+    transform 120ms var(--ease);
+}
+
+.ctrl:active {
+  transform: scale(0.94);
+}
+
+/* Engaged controls are the one place blue appears as a fill. */
+.ctrl.is-on {
+  background: var(--accent);
+  color: var(--fg-inverse);
+  border-color: transparent;
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.25),
+    0 2px 12px rgb(0 122 255 / 0.35);
+}
+
+.ctrl-badge {
+  position: absolute;
+  top: -3px;
+  right: -3px;
+  min-width: 19px;
+  height: 19px;
+  padding: 0 5px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--r-full);
+  background: var(--accent);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  border: 2px solid rgb(255 255 255 / 0.9);
+}
+
+.ctrl.is-on .ctrl-badge {
+  background: var(--fg);
+}
+
+/* ---------------------------------------------------------------------- dock */
+
+.dock {
+  position: absolute;
+  z-index: 3;
+  left: 12px;
+  right: 12px;
+  bottom: calc(env(safe-area-inset-bottom) + 12px);
+  padding: 14px;
+  border-radius: var(--r-xl);
+  display: grid;
+  gap: 10px;
+}
+
+/* With nothing to report the dock is a single quiet line, not a panel. */
+.dock.is-empty {
+  padding: 11px 16px;
+  border-radius: var(--r-full);
+}
+
+.hint {
+  margin: 0;
+  font-size: 13px;
+  color: var(--fg-mute);
+}
+
+.banner {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: var(--r-sm);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.banner-flag {
+  background: var(--flag-soft);
+  color: var(--flag-text);
+}
+
+.banner-refuse {
+  background: var(--alert-soft);
+  color: var(--alert-text);
+}
+
+.stats {
+  display: flex;
+  gap: 8px;
+}
+
+.stat {
+  flex: 1;
+  background: rgb(120 120 128 / 0.08);
+  border-radius: var(--r-md);
+  padding: 9px 11px;
+}
+
+/* Green appears here and on the route line, nowhere else. */
+.stat.is-primary {
+  background: var(--recommend-soft);
+  box-shadow: inset 0 0 0 1px rgb(52 199 89 / 0.35);
+}
+
+.stat-label {
+  display: block;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--fg-mute);
+}
+
+.stat.is-primary .stat-label {
+  color: var(--recommend-text);
+}
+
+.stat-val {
+  display: block;
+  font-size: 14px;
+  font-weight: 500;
+  margin-top: 2px;
+}
+
+.summary {
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--fg-dim);
+}
+
+/* --------------------------------------------------------------------- sheet */
+
+.scrim {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  background: var(--scrim);
+  animation: fade var(--dur) var(--ease);
+}
+
+.sheet {
+  position: absolute;
+  z-index: 6;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  max-height: 64vh;
+  display: flex;
+  flex-direction: column;
+  padding: 8px 16px calc(env(safe-area-inset-bottom) + 18px);
+  border-radius: var(--r-xl) var(--r-xl) 0 0;
+  background: var(--glass-strong);
+  -webkit-backdrop-filter: var(--glass-blur-strong);
+  backdrop-filter: var(--glass-blur-strong);
+  border-top: 1px solid var(--glass-edge);
+  box-shadow: var(--shadow-2);
+  animation: rise 320ms var(--ease);
+}
+
+.sheet.is-tall {
+  max-height: 84vh;
+}
+
+.sheet-grip {
+  width: 36px;
+  height: 5px;
+  border-radius: var(--r-full);
+  background: rgb(60 60 67 / 0.3);
+  margin: 5px auto 12px;
+  flex: none;
+}
+
+.sheet-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  flex: none;
+}
+
+.sheet-head h2 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+.sheet-sub {
+  margin: 3px 0 0;
+  font-size: 12px;
+  color: var(--fg-mute);
+}
+
+.sheet-body {
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  margin-top: 14px;
+}
+
+.icon-btn {
+  width: 30px;
+  height: 30px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  background: rgb(120 120 128 / 0.12);
+  border: none;
+  border-radius: var(--r-full);
+  color: var(--fg-mute);
+  font-size: 13px;
+}
+
+@keyframes rise {
+  from {
+    transform: translateY(24px);
+    opacity: 0;
+  }
+}
+
+@keyframes fade {
+  from {
+    opacity: 0;
+  }
+}
+
+/* ------------------------------------------------------------------ evidence */
+
+.lede {
+  margin: 0 0 10px;
+  font-size: 13px;
+  color: var(--fg-dim);
+}
+
+.evidence {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border-radius: var(--r-md);
+  overflow: hidden;
+  background: rgb(120 120 128 / 0.08);
+}
+
+.evidence li {
+  display: grid;
+  grid-template-columns: 82px 1fr;
+  gap: 2px 10px;
+  padding: 11px 12px;
+  min-height: var(--tap);
+  align-content: center;
+  box-shadow: inset 0 -1px 0 var(--line);
+}
+
+.evidence li:last-child {
+  box-shadow: none;
+}
+
+/* Amber marks anything the map data simply does not record. */
+.evidence li.is-inferred {
+  background: var(--flag-soft);
+}
+
+.ev-type {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--fg-mute);
+  align-self: start;
+  padding-top: 1px;
+}
+
+.ev-detail {
+  font-size: 13.5px;
+}
+
+.ev-ref {
+  grid-column: 2;
+  font-size: 11px;
+  color: var(--fg-mute);
+  word-break: break-word;
+}
+
+.evidence li.is-inferred .ev-type,
+.evidence li.is-inferred .ev-ref {
+  color: var(--flag-text);
+}
+
+.note {
+  margin: 12px 0 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--fg-mute);
+}
+
+.note-flag {
+  padding: 9px 11px;
+  border-radius: var(--r-sm);
+  background: var(--flag-soft);
+  color: var(--flag-text);
+}
+
+.note-refuse {
+  padding: 9px 11px;
+  border-radius: var(--r-sm);
+  background: var(--alert-soft);
+  color: var(--alert-text);
+}
+
+.group-title {
+  margin: 18px 0 8px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--fg-mute);
+}
+
+.group-title:first-child {
+  margin-top: 0;
+}
+
+/* ------------------------------------------------------------------- cameras */
+
+.cam-scroll {
+  display: flex;
+  gap: 12px;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scroll-snap-type: x mandatory;
+  /* Bleeds to the sheet edges so the next tile peeks and reads as scrollable. */
+  margin: 0 -16px;
+  padding: 0 16px 6px;
+  -webkit-overflow-scrolling: touch;
+}
+
+.cam {
+  margin: 0;
+  flex: none;
+  width: 78%;
+  max-width: 320px;
+  scroll-snap-align: start;
+}
+
+.cam-md {
+  width: 160px;
+}
+
+.cam-media {
+  position: relative;
+  display: block;
+  width: 100%;
+  aspect-ratio: 3 / 2;
+  padding: 0;
+  border: none;
+  border-radius: var(--r-md);
+  overflow: hidden;
+  background: var(--surface-3);
+}
+
+.cam-media img,
+.cam-media video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.cam-dead {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  font-size: 12px;
+  color: var(--fg-mute);
+}
+
+/* Every frame carries one of these. Never optional. */
+.badge {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  padding: 4px 8px;
+  border-radius: var(--r-full);
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  background: rgb(0 0 0 / 0.55);
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
+  color: #fff;
+}
+
+.badge.is-live {
+  background: var(--recommend);
+  color: #04340f;
+}
+
+.badge.is-old {
+  background: var(--flag);
+  color: #351f00;
+}
+
+.badge.is-dead {
+  background: var(--alert);
+  color: #fff;
+}
+
+.cam-dist {
+  position: absolute;
+  right: 8px;
+  bottom: 8px;
+  padding: 4px 8px;
+  border-radius: var(--r-full);
+  font-size: 10px;
+  background: rgb(0 0 0 / 0.55);
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
+  color: #fff;
+}
+
+.cam figcaption {
+  display: grid;
+  gap: 2px;
+  padding: 8px 2px 0;
+}
+
+.cam-id {
+  font-size: 11px;
+  color: var(--fg-mute);
+}
+
+.cam-caption {
+  font-size: 13px;
+  color: var(--fg-dim);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.cam-caption.is-muted {
+  color: var(--fg-mute);
+  font-style: italic;
+}
+
+.cam-count {
+  font-size: 11px;
+  color: var(--fg-mute);
+}
+
+/* Detections drawn over a frame at their normalised cx/cy (SPEC §6.2). */
+.det {
+  position: absolute;
+  width: 12px;
+  height: 12px;
+  margin: -6px 0 0 -6px;
+  border-radius: var(--r-full);
+  box-shadow:
+    0 0 0 2px rgb(255 255 255 / 0.95),
+    0 1px 4px rgb(0 0 0 / 0.5);
+  pointer-events: none;
+}
+
+.det.is-low {
+  opacity: 0.55;
+}
+
+.det-person {
+  background: var(--class-person);
+}
+
+.det-vehicle {
+  background: var(--class-vehicle);
+  border-radius: 3px;
+}
+
+.det-obstruction {
+  background: var(--class-obstruction);
+  border-radius: 2px;
+  transform: rotate(45deg);
+}
+
+.det-other {
+  background: #fff;
+  box-shadow:
+    0 0 0 2px var(--class-other),
+    0 1px 4px rgb(0 0 0 / 0.4);
+}
+
+/* ---------------------------------------------------------------- detections */
+
+.det-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border-radius: var(--r-md);
+  overflow: hidden;
+  background: rgb(120 120 128 / 0.08);
+}
+
+.det-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 12px;
+  min-height: var(--tap);
+  box-shadow: inset 0 -1px 0 var(--line);
+}
+
+.det-row:last-child {
+  box-shadow: none;
+}
+
+.det-row.is-unplaced {
+  background: var(--flag-soft);
+}
+
+.det-label {
+  flex: 1;
+  font-size: 13.5px;
+}
+
+.det-meta {
+  font-size: 11px;
+  color: var(--fg-mute);
+}
+
+.swatch {
+  width: 12px;
+  height: 12px;
+  flex: none;
+  border-radius: var(--r-full);
+}
+
+.swatch-person {
+  background: var(--class-person);
+}
+
+.swatch-vehicle {
+  background: var(--class-vehicle);
+  border-radius: 3px;
+}
+
+.swatch-obstruction {
+  background: var(--class-obstruction);
+  border-radius: 2px;
+  transform: rotate(45deg);
+}
+
+.swatch-other {
+  background: transparent;
+  box-shadow: inset 0 0 0 2px var(--class-other);
+}
+
+/* ------------------------------------------------------------- map  markers */
+
+.mk {
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+}
+
+.mk-origin,
+.mk-dest {
+  width: 20px;
+  height: 20px;
+  border-radius: var(--r-full);
+  border: 3.5px solid #fff;
+  box-shadow: 0 1px 6px rgb(0 0 0 / 0.35);
+}
+
+.mk-origin {
+  background: var(--recommend);
+}
+
+.mk-dest {
+  background: var(--fg);
+}
+
+/* Neutral by design: an accent on every block would spend the attention that a
+   live alert depends on. */
+.mk-cam {
+  position: relative;
+  width: 28px;
+  height: 28px;
+  border-radius: var(--r-full);
+  background: var(--glass-strong);
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
+  color: var(--fg-dim);
+  box-shadow:
+    inset 0 1px 0 var(--glass-edge),
+    0 1px 5px rgb(0 0 0 / 0.22);
+}
+
+.mk-cam-live {
+  color: var(--fg);
+  box-shadow:
+    inset 0 1px 0 var(--glass-edge),
+    0 0 0 2.5px var(--recommend),
+    0 1px 5px rgb(0 0 0 / 0.22);
+}
+
+.mk-cam.is-selected {
+  background: var(--accent);
+  color: #fff;
+}
+
+/* Field of view. Opacity tracks bearing_conf (SPEC §6.7); a camera with no
+   resolved bearing gets no cone at all rather than a guessed one. */
+.mk-cone {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 108px;
+  height: 108px;
+  margin: -54px 0 0 -54px;
+  pointer-events: none;
+  border-radius: var(--r-full);
+  opacity: var(--conf, 0.3);
+  transform: rotate(calc(var(--rot, 0deg) - 90deg));
+  background: conic-gradient(
+    from -22deg,
+    rgb(0 122 255 / 0.5) 0deg,
+    rgb(0 122 255 / 0.06) 44deg,
+    transparent 44deg
+  );
+  mask-image: radial-gradient(circle at center, #000 12%, rgb(0 0 0 / 0.35) 70%, transparent 100%);
+}
+
+.mk-det {
+  width: 12px;
+  height: 12px;
+  border-radius: var(--r-full);
+  box-shadow:
+    0 0 0 2px #fff,
+    0 1px 4px rgb(0 0 0 / 0.4);
+}
+
+.mk-det.is-low {
+  opacity: 0.5;
+}
+
+.mk-det-person {
+  background: var(--class-person);
+}
+
+.mk-det-vehicle {
+  background: var(--class-vehicle);
+  border-radius: 3px;
+}
+
+.mk-det-obstruction {
+  background: var(--class-obstruction);
+  border-radius: 2px;
+  transform: rotate(45deg);
+}
+
+.mk-det-other {
+  background: #fff;
+  box-shadow:
+    0 0 0 2px var(--class-other),
+    0 1px 4px rgb(0 0 0 / 0.4);
+}
+
+/* ------------------------------------------------------------------ maplibre */
+
+.maplibregl-ctrl-attrib {
+  font-size: 10px;
+  background: var(--glass) !important;
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
+  border-radius: var(--r-full) 0 0 0;
+  color: var(--fg-mute);
+}
+
+.maplibregl-ctrl-attrib a {
+  color: var(--fg-dim);
+}
+
+/* Clears the dock. */
+.maplibregl-ctrl-bottom-right {
+  margin-bottom: calc(env(safe-area-inset-bottom) + 150px);
+}
+
+.maplibregl-ctrl-group {
+  background: var(--glass) !important;
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--glass-line) !important;
+  border-radius: var(--r-full) !important;
+  box-shadow:
+    inset 0 1px 0 var(--glass-edge),
+    var(--shadow-1) !important;
+  overflow: hidden;
+}
+
+.maplibregl-ctrl-group button {
+  width: var(--tap) !important;
+  height: var(--tap) !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sheet,
+  .scrim {
+    animation: none;
+  }
+  .ctrl:active {
+    transform: none;
+  }
+}
