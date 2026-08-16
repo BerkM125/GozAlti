@@ -136,6 +136,15 @@ class TestDeadCamera(unittest.TestCase):
             service.observe({"camera_id": "X", "path": "/nope/missing.jpg", "stale": False})
 
 
+try:
+    import cv2 as _cv2
+    HAVE_CV2 = True
+except Exception:
+    HAVE_CV2 = False
+
+
+@unittest.skipUnless(HAVE_CV2, "cv2 lives in the vLLM container, not in system python; "
+                               "the live tier covers illumination end to end")
 class TestIllumination(unittest.TestCase):
     """Lighting is measured, not asked of the model. safe-walk caught the VLM calling a
     2 a.m. street 'daylight'; a histogram cannot do that."""
@@ -164,6 +173,7 @@ class TestIllumination(unittest.TestCase):
         self.assertLessEqual(lum["dark_fraction"], 1.0)
 
     def test_missing_file_returns_none_not_raise(self):
+        """Never raise out of the illumination path: a bad frame must not sink a read."""
         self.assertIsNone(service.illumination(Path("/nope/missing.jpg")))
 
 
