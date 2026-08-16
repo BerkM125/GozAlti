@@ -7,6 +7,7 @@ import {
   type Camera,
   type Detection,
   type DetectionFamily,
+  type FrameRecord,
   type Observation,
   type SegmentAssessment,
 } from "../types.ts";
@@ -109,33 +110,54 @@ export function SegmentSheet({
 export function CameraPanel({
   cameras,
   observations,
+  records,
   onClose,
   onSelect,
   unavailable,
+  locationWhy,
+  onRoute,
 }: {
   cameras: Camera[];
   observations: Map<string, Observation>;
+  records: Map<string, FrameRecord>;
   onClose: () => void;
   onSelect: (id: string) => void;
   unavailable: string | null;
+  /** Set when we have no position, so the title cannot claim "near you". */
+  locationWhy: string | null;
+  /** True when the list covers a planned route rather than a point. */
+  onRoute: boolean;
 }) {
+  const title = onRoute
+    ? "Cameras on your route"
+    : locationWhy
+      ? "Cameras downtown"
+      : "Cameras near you";
+  const sub = unavailable
+    ? "camera service unavailable"
+    : onRoute
+      ? `${cameras.length} watching your way · in passing order · public SDOT feeds`
+      : `${cameras.length} watching this area · nearest first · public SDOT feeds`;
+
   return (
-    <Sheet
-      title="Cameras near you"
-      sub={
-        unavailable
-          ? "camera service unavailable"
-          : `${cameras.length} watching this area · public SDOT feeds`
-      }
-      onClose={onClose}
-      tall
-    >
+    <Sheet title={title} sub={sub} onClose={onClose} tall>
+      {/* Never let the list imply these are near the walker when they are not. */}
+      {locationWhy && !unavailable && !onRoute && (
+        <p className="note note-flag">
+          {locationWhy} These are the cameras around downtown Seattle, not around you.
+        </p>
+      )}
+
       {unavailable ? (
         <p className="note note-refuse">
           {unavailable}. Routing still works; live camera evidence does not.
         </p>
       ) : cameras.length === 0 ? (
-        <p className="note">No public cameras watch this stretch.</p>
+        <p className="note">
+          {onRoute
+            ? "No public cameras overlook this route. That is a gap in the camera network, not a judgement about the streets."
+            : "No public cameras watch this stretch."}
+        </p>
       ) : (
         <div className="cam-scroll">
           {cameras.map((c) => (
@@ -143,6 +165,7 @@ export function CameraPanel({
               key={c.camera_id}
               camera={c}
               observation={observations.get(c.camera_id) ?? null}
+              record={records.get(c.camera_id) ?? null}
               onOpen={() => onSelect(c.camera_id)}
             />
           ))}

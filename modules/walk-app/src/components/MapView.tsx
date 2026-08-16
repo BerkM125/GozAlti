@@ -14,6 +14,8 @@ type Props = {
   result: RouteResult | null;
   origin: LngLat | null;
   dest: LngLat | null;
+  /** Where the walker is, when known. Drawn as its own marker. */
+  userPos: LngLat | null;
   cameras: Camera[];
   detections: { camera: Camera; detection: Detection }[];
   selectedSegment: string | null;
@@ -37,6 +39,7 @@ export default function MapView({
   result,
   origin,
   dest,
+  userPos,
   cameras,
   detections,
   selectedSegment,
@@ -230,6 +233,20 @@ export default function MapView({
     });
   }, [result]);
 
+  // -- centre on the walker, once ------------------------------------------
+  // Only the first fix moves the camera. Re-centring on every update would
+  // fight the user's own panning, and a framed route must never be yanked out
+  // of view by a late position.
+  const flown = useRef(false);
+  useEffect(() => {
+    if (!userPos || flown.current) return;
+    flown.current = true;
+    whenReady((m) => {
+      if (result) return;
+      m.easeTo({ center: userPos, zoom: Math.max(m.getZoom(), 15.5), duration: 900 });
+    });
+  }, [userPos, result]);
+
   // -- selection -----------------------------------------------------------
   useEffect(() => {
     whenReady((m) =>
@@ -241,6 +258,11 @@ export default function MapView({
   useEffect(() => {
     whenReady((m) => {
       const want = new Map<string, { at: LngLat; node: HTMLElement; onClick?: () => void }>();
+
+      // Drawn ourselves because the position now arrives from
+      // getCurrentPosition on load, not only from the GeolocateControl, and
+      // the control only paints its dot once it has been tapped.
+      if (userPos) want.set("user", { at: userPos, node: el("mk mk-user") });
 
       if (origin) want.set("origin", { at: origin, node: el("mk mk-origin") });
       if (dest) want.set("dest", { at: dest, node: el("mk mk-dest") });
@@ -296,7 +318,7 @@ export default function MapView({
         markers.current.set(key, marker);
       }
     });
-  }, [origin, dest, cameras, detections, selectedCamera]);
+  }, [origin, dest, userPos, cameras, detections, selectedCamera]);
 
   return <div ref={container} className="map" />;
 }

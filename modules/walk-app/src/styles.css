@@ -288,7 +288,10 @@ button {
   max-height: 64vh;
   display: flex;
   flex-direction: column;
-  padding: 8px 16px calc(env(safe-area-inset-bottom) + 18px);
+  /* No horizontal padding here: it lives on the head and body instead, so the
+     camera carousel's -16px bleed lands exactly on the body's padding box and
+     is therefore not clipped by its overflow. Padding here would clip it. */
+  padding: 8px 0 calc(env(safe-area-inset-bottom) + 18px);
   border-radius: var(--r-xl) var(--r-xl) 0 0;
   background: var(--glass-strong);
   -webkit-backdrop-filter: var(--glass-blur-strong);
@@ -317,6 +320,7 @@ button {
   justify-content: space-between;
   gap: 12px;
   flex: none;
+  padding-inline: 16px;
 }
 
 .sheet-head h2 {
@@ -334,9 +338,15 @@ button {
 
 .sheet-body {
   overflow-y: auto;
+  /* Explicit, not inherited: setting only overflow-y makes overflow-x compute
+     to auto, which gave the sheet a second, stray horizontal scrollbar under
+     the camera carousel. Clipping happens at the padding box, so the -16px
+     bleed below still reaches the sheet edges. */
+  overflow-x: hidden;
   overscroll-behavior: contain;
   -webkit-overflow-scrolling: touch;
   margin-top: 14px;
+  padding-inline: 16px;
 }
 
 .icon-btn {
@@ -469,6 +479,9 @@ button {
   overflow-x: auto;
   overscroll-behavior-x: contain;
   scroll-snap-type: x mandatory;
+  /* Without this the snap area starts at the scrollport edge, so the first
+     tile snaps flush to the screen and the 16px inset is silently cancelled. */
+  scroll-padding-left: 16px;
   /* Bleeds to the sheet edges so the next tile peeks and reads as scrollable. */
   margin: 0 -16px;
   padding: 0 16px 6px;
@@ -561,10 +574,60 @@ button {
   color: #fff;
 }
 
+/* Where you are. Blue because invariant #5 keeps #007AFF for chrome, and your
+   own position is orientation, not a claim about the street. */
+.mk-user {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--accent);
+  border: 2.5px solid #fff;
+  box-shadow: 0 0 0 4px rgb(0 122 255 / 0.22), var(--shadow-1);
+}
+
+/* This camera has a stream, but the list deliberately shows a still. Marks it
+   as openable without ever claiming the tile is playing. */
+.cam-canlive {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  padding: 4px 8px;
+  border-radius: var(--r-full);
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  background: rgb(0 0 0 / 0.55);
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
+  color: #fff;
+}
+
+/* The opened camera, full-bleed to the sheet edges. */
+.cam-full {
+  margin: 0 -16px 4px;
+}
+
+.cam-full .cam {
+  width: 100%;
+  max-width: none;
+}
+
+.cam-full .cam-media {
+  border-radius: 0;
+  aspect-ratio: 3 / 2;
+}
+
 .cam figcaption {
   display: grid;
   gap: 2px;
   padding: 8px 2px 0;
+}
+
+.cam-where {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--fg);
 }
 
 .cam-id {
