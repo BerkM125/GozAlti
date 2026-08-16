@@ -5,3 +5,4 @@ lab/log.jsonl
 lab/bench/
 lab/scene_out/
 lab/*.jsonl
+lab/detect_out/
