@@ -1,7 +1,7 @@
 # CLAUDE.md — session rules for GozAlti
 
 You are working inside **GozAlti**, a 5-person NVIDIA Spark Hack (See track)
-monorepo with a hard deadline of **Sunday Aug 16, 4:00 PM PDT**. These rules are
+monorepo. These rules are
 binding for every Claude session in this repo.
 
 ## Before touching anything
