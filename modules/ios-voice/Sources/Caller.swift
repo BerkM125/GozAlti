@@ -39,11 +39,6 @@ final class Caller: ObservableObject {
     @Published var number = ""
     @Published var lastError: String?
     @Published var lastOutcome = ""
-    /// Set when the server placed the call but could not send the text. Twilio trial
-    /// accounts are limited to predefined SMS templates (error 572006), so free-text
-    /// SMS fails there even though the voice call succeeds. The phone then offers the
-    /// compose sheet — one tap, rather than a promise of an address that never arrives.
-    @Published var needsManualText = false
 
     /// Backend that rings the contact and speaks the situation — modules/calling.
     /// Defaults to the box this build was made on; editable in the UI when that changes.
@@ -109,9 +104,6 @@ final class Caller: ObservableObject {
                     ((channels[k] as? [String: Any])?["status"] as? String) ?? "absent"
                 }
                 let sent = channels.keys.filter { status($0) == "sent" }.sorted()
-                // The call promised an address by text. If the text did not go, the
-                // promise is outstanding and the user has to know before they walk on.
-                needsManualText = status("twilio") == "sent" && status("twilio_sms") != "sent"
                 lastOutcome = sent.isEmpty
                     ? "Server accepted, but no channel reported success"
                     : "Reached \(contact) via " + sent.joined(separator: ", ")

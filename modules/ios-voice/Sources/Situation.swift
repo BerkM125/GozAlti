@@ -35,7 +35,9 @@ enum Situation {
         } else {
             s.append("No location fix was available.")
         }
-        if fix != nil { s.append("Sending you their address by text now.") }
+        // The promise of a text is NOT made here. Only the server knows whether the SMS
+        // actually went out, and it appends that sentence once it is true. A voice that
+        // promises an address which never arrives is worse than one that never offered.
         return s.joined(separator: " ")
     }
 

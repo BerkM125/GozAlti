@@ -40,13 +40,6 @@ struct ContentView: View {
             }
         }
         .preferredColorScheme(.dark)
-        .onChange(of: caller.needsManualText) { _, needs in
-            // The spoken message said an address is coming. Twilio trial cannot send
-            // free-text SMS, so keep the promise with the compose sheet instead.
-            guard needs else { return }
-            msg.compose(contact: dlg.contact, fix: loc.current, address: loc.address)
-            caller.needsManualText = false
-        }
         .sheet(isPresented: $msg.showing) {
             MessageSheet(recipient: caller.number, body: msg.body) { result in
                 msg.finish(result)

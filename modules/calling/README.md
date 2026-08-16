@@ -3,10 +3,32 @@
 `./run.sh` → **:8060**. Stdlib only, no `pip install`. Runs on the Acer box.
 
 ```
-POST /alert  {"contact":"Dhruv","to":"+1555...","message":"..."}
-GET  /health          which channels are armed, and whether any of them RINGS
-GET  /                browser test page
+POST /alert         {"contact":"Bert","to":"+1555...","message":"..."}  -> {id, reached, channels}
+GET  /alerts?limit=20   recent alerts, newest first (message truncated)
+GET  /alerts/<id>       one alert in full
+GET  /health            which channels are armed, and whether any of them RINGS
+GET  /                  browser test page
 ```
+
+This is the escalation call described in `modules/offpath-911`: the confirmation-gated
+flow decides, and this module carries it out. It contacts a **nominated person**. It is
+not a 911 dialer and cannot become one — emergency numbers are refused in every channel
+with a 403 and a stderr log, whatever the caller sends.
+
+`/alerts` exists so the rest of the pipeline does not have to be told what happened. The
+demo UI, the harness and the off-path module can all poll it for the same evidence: which
+channels were tried, which landed, how long it took, and the exact text that was spoken.
+History is in memory, capped at 50, and deliberately not persisted — this is evidence for
+a demo, not a record of where somebody has been.
+
+## Texting is off by default
+
+Twilio trial accounts refuse free-text SMS bodies (error 572006, "predefined templates
+only") while placing calls perfectly well. A channel that always fails is noise in every
+response, so texting is opt-in: set `TWILIO_SMS=1` once the account is upgraded. When it
+is on, the text is sent BEFORE the call and the spoken message gains the sentence
+"sending you their address by text now" only once that is true — a voice that promises an
+address which never arrives is worse than one that never offered.
 
 ## What can actually ring a phone, free
 

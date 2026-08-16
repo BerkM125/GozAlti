@@ -50,12 +50,17 @@ import json
 import os
 import re
 import sys
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 PORT = int(os.environ.get("CALLING_PORT", "8060"))
+# Twilio trial accounts refuse free-text SMS bodies (error 572006, "predefined templates
+# only") while placing calls perfectly well. Rather than ship a channel that always fails
+# and clutters every response, texting is opt-in and turns on once the account is upgraded.
+SMS_ENABLED = os.environ.get("TWILIO_SMS", "").lower() in ("1", "true", "yes")
 TIMEOUT = 10
 
 # Refused in every channel. Digits only, after stripping punctuation. This list is
@@ -281,7 +286,6 @@ def send_twilio_sms(msg, to="", sms=None, **_):
 
 CHANNELS = {
     "twilio": send_twilio,        # rings a real cellular phone
-    "twilio_sms": send_twilio_sms,  # the durable half of the same alert
     "callmebot": send_callmebot,  # rings Telegram, free, no account
     "telegram": send_telegram,
     "ntfy": send_ntfy,
@@ -294,16 +298,50 @@ def armed():
     return {
         "callmebot": bool(os.environ.get("CALLMEBOT_USER")),
         "twilio": bool(twilio_auth() and os.environ.get("TWILIO_FROM")),
-        "twilio_sms": bool(twilio_auth() and os.environ.get("TWILIO_FROM")),
+        "twilio_sms": bool(SMS_ENABLED and twilio_auth() and os.environ.get("TWILIO_FROM")),
         "telegram": bool(os.environ.get("TELEGRAM_BOT_TOKEN") and os.environ.get("TELEGRAM_CHAT_ID")),
         "ntfy": bool(os.environ.get("NTFY_TOPIC")),
         "discord": bool(os.environ.get("DISCORD_WEBHOOK_URL")),
     }
 
 
+# Recent alerts, newest last. In memory on purpose: this is evidence for a demo and a
+# debugging aid, not a record we want to persist about someone's movements.
+ALERTS = []
+ALERTS_MAX = 50
+
+
+def remember(entry):
+    ALERTS.append(entry)
+    del ALERTS[:-ALERTS_MAX]
+    return entry
+
+
 def fan_out(message, contact, to, sms=None):
+    """Text first, then call, and let the call describe what actually happened.
+
+    The spoken message promises "sending you their address by text now". Making that
+    promise before knowing whether the text went out means the voice can lie — and on a
+    trial account it reliably does, because free-text SMS is refused (572006) while the
+    call succeeds. So the SMS is attempted first and the promise is appended to the
+    spoken text only once it is true. A contact who is told an address is coming will
+    wait for it; a contact who is told there is none will look at the call log instead.
+    """
     results, reached = {}, False
+    if sms and SMS_ENABLED:
+        out = send_twilio_sms(message, contact=contact, to=to, sms=sms)
+        if out is None:
+            results["twilio_sms"] = {"status": "not configured"}
+        else:
+            ok, detail, body = out
+            results["twilio_sms"] = {"status": "sent" if ok else "failed", "detail": detail}
+            reached = reached or ok
+            if ok:
+                message = message.rstrip() + " Sending you their address by text now."
+
     for name, fn in CHANNELS.items():
+        if name in results:
+            continue
         out = fn(message, contact=contact, to=to, sms=sms)
         if out is None:
             results[name] = {"status": "not configured"}
@@ -353,6 +391,18 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/health":
             self._send(200, {"ok": True, "port": PORT, "channels": armed(),
                              "rings_a_phone": armed()["twilio"] or armed()["callmebot"]})
+        elif path == "/alerts":
+            # Newest first, which is what a dashboard wants. Trim the message body so a
+            # poll is cheap; /alerts/<id> has the whole thing.
+            q = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+            limit = int((q.get("limit") or ["20"])[0])
+            rows = [{k: (v[:120] if k == "message" else v) for k, v in a.items()}
+                    for a in reversed(ALERTS[-limit:])]
+            self._send(200, {"count": len(ALERTS), "alerts": rows})
+        elif path.startswith("/alerts/"):
+            wanted = path.rsplit("/", 1)[-1]
+            hit = next((a for a in ALERTS if a["id"] == wanted), None)
+            self._send(200 if hit else 404, hit or {"error": f"no alert {wanted}"})
         elif path == "/":
             self._send(200, PAGE.encode(), "text/html; charset=utf-8")
         else:
@@ -371,7 +421,15 @@ class Handler(BaseHTTPRequestHandler):
         if not message:
             return self._send(400, {"error": "message is required"})
         contact = (payload.get("contact") or "your contact").strip()
-        to = (payload.get("to") or os.environ.get("CALLING_CONTACT_NUMBER") or "").strip()
+        configured = (os.environ.get("CALLING_CONTACT_NUMBER") or "").strip()
+        to = (payload.get("to") or "").strip()
+        # A caller-supplied number that cannot be a phone number is worse than no number
+        # at all: it fails the whole alert instead of falling back. The phone's contact
+        # field is free text and may hold anything a thumb left there.
+        if to and len(re.sub(r"\D", "", to)) < 10:
+            sys.stderr.write(f"[calling] ignoring unusable to={to!r}, using configured contact\n")
+            to = ""
+        to = to or configured
 
         if blocked(to):
             # Loud refusal, logged, 403. This is the one thing in this file that must
@@ -382,9 +440,28 @@ class Handler(BaseHTTPRequestHandler):
                 "rule": "modules/offpath-911 binding rule 1",
             })
 
+        # Log what came in and what each channel said. A failure that reaches the phone
+        # as a bare status code is a failure you debug by guessing.
+        sys.stderr.write(f"[calling] alert contact={contact!r} to={to!r} "
+                         f"msg_len={len(message)} sms={'yes' if payload.get('sms') else 'no'}\n")
+        started = time.time()
         reached, results = fan_out(message, contact, to,
                                    sms=(payload.get("sms") or "").strip() or None)
+        entry = remember({
+            "id": f"alert-{len(ALERTS) + 1:04d}",
+            "at": started,
+            "contact": contact,
+            "to": to,
+            "message": message,
+            "reached": reached,
+            "channels": results,
+            "took_s": round(time.time() - started, 2),
+        })
+        for name, r in results.items():
+            if r["status"] != "not configured":
+                sys.stderr.write(f"[calling]   {name}: {r['status']} — {r.get('detail')}\n")
         self._send(200 if reached else 502, {
+            "id": entry["id"],
             "reached": reached,
             "channels": results,
             # The caller told a person "I'm calling someone" — it needs to know whether
