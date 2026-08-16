@@ -731,8 +731,8 @@ function startSummaryPoll() {
 async function runPathCvPass(cids) {
   const token = ++pathCvToken;
   if (!cids.length) return;
-  Object.keys(CVOBJ).forEach((k) => delete CVOBJ[k]);
-  renderCvObjects();
+  // no bulk wipe: already-rendered cars/people stay on the map; each
+  // camera's boxes are upserted as its fresh result lands
   const note = document.createElement("span");
   note.className = "cambar-note";
   note.textContent = `CV still pass 0/${cids.length}…`;
@@ -1045,9 +1045,8 @@ async function clickPoint(lat, lon) {
   if (cams.length) {
     selectCamera(cams[0].camera_id);
     // one-shot multi-camera pass: objects from EVERY camera that sees this
-    // spot (the focused camera keeps updating via its own loop)
-    Object.keys(CVOBJ).forEach((k) => delete CVOBJ[k]);
-    renderCvObjects();
+    // spot UPSERT into the scene — existing rendered cars/people persist
+    // (each camera's boxes are replaced only when IT produces a new result)
     fetch(`${API}/api/cv/point?lat=${lat}&lon=${lon}&radius_m=${Math.max(150, radius)}`)
       .then((r) => r.json())
       .then((pt) => (pt.cameras || []).forEach(ingestCvResult))
