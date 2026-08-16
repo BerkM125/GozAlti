@@ -55,10 +55,17 @@ install() {
 
 start() {
   docker rm -f "$NAME" >/dev/null 2>&1
+  # Mount the repo at its REAL host path, not /repo. media-ingest hands us absolute
+  # host paths in FrameRecord.path; if the container sees a different prefix those
+  # 404. Identical paths inside and out is the only version that cannot skew.
+  # DATA_MOUNT covers a frame store living outside the repo.
+  local extra=()
+  [ -n "${DATA_MOUNT:-}" ] && extra=(-v "$DATA_MOUNT":"$DATA_MOUNT")
   docker run -d --name "$NAME" --gpus all --network host --ipc=host \
-    -v "$REPO_ROOT":/repo -w /repo/modules/vlm \
+    -v "$REPO_ROOT":"$REPO_ROOT" -w "$REPO_ROOT/modules/vlm" \
+    "${extra[@]}" \
     -v "$CACHE":/root/.cache/torch \
-    -e GOZALTI_ROOT=/repo -e VLM_PORT="$PORT" \
+    -e GOZALTI_ROOT="$REPO_ROOT" -e VLM_PORT="$PORT" \
     -e VLM_MODEL="${VLM_MODEL:-qwen3-vl:8b}" \
     -e VLM_DET_ARCH="${VLM_DET_ARCH:-fasterrcnn}" \
     --entrypoint python3 "$IMAGE" service.py >/dev/null || { echo "start failed"; exit 1; }
