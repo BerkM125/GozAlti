@@ -48,8 +48,38 @@ present). Broader Mac + SSD inventory: `experiments/safe-walk/docs/models.md`.
 | dead camera (`camera_dead`) | none needed | — | placeholder JPEG hash, from media-ingest (`stale`); do not spend a VLM call |
 | street signs / text | OCR prompt | deepseek-ocr / glm-ocr | side quest: camera heading |
 
-## Benchmark — 23 sample frames, both prompts
+## Benchmark — 23 sample frames × 3 prompts × 3 models (Sat 15 Aug 18:00, ollama warm, serial)
 
-_Filled in from `bench/` (see NOTES.md for method). Numbers are wall seconds per call, ollama warm._
+| model | caption parse · s/frame | boxes parse · s/frame · total | points parse · s/frame · total | count within ±2 of caption |
+|---|---|---|---|---|
+| `qwen2.5vl:7b` | 23/23 · **3.0 s** | 21/23 · 6.4 s · 52 | 19/23 · 4.7 s · 51 | 20/21 |
+| `qwen3-vl:8b` | 23/23 · 3.3 s | **23/23** · 6.3 s · 132 | **22/23 · 3.8 s** · 102 | 22/23 |
+| `gemma4:12b` | 23/23 · 4.6 s | 22/23 · 5.9 s · 59 | 22/23 · 7.6 s · 109 | 15/22 |
 
-(pending — see below once bench completes)
+Per-frame counts (Mac ref = the Mac's own Qwen2.5-VL `people_visible`, not truth):
+
+| frame | mac | q2.5 box | q2.5 pt | q3 box | q3 pt | g4 box | g4 pt |
+|---|---|---|---|---|---|---|---|
+| crowd CMR-0016 | 10 | 5 | ✗ | 11 | 11 | 1 | 8 |
+| crowd CMR-0039 | 10 | 8 | 11 | 11 | 12 | ✗ | 15 |
+| crowd CMR-0176 | 15 | 10 | ✗ | 13 | 14 | 20 | 12 |
+| crowd CMR-0261 | 10 | ✗ | ✗ | 39† | ✗ | 1 | 30 |
+| crowd CMR-0303 | 10 | ✗ | ✗ | 14 | 16 | 9 | 12 |
+| crowd CMR-0428 | 10 | 6 | 12 | 11 | 15 | 1 | ✗ |
+| few CMR-0055/0163/0170/0174/0306 | 4 each | 3/4/2/4/5 | 4/4/3/7/4 | 4/4/6/6/5 | 5/4/5/7/6 | 4/6/1/7/1 | 4/7/4/6/5 |
+| blocked/construction ×4 | 2/1/0/0 | 2/1/0/0 | 2/1/0/1 | 2/2/0/1 | 2/2/0/1 | 1/1/1/1 | 1/1/0/2 |
+| empty ×3, night ×3, wet ×2 | 0/0/0 · 0/1/0 · 1/0 | all correct | all correct | 1 false + on CMR-0021 | 1 false + | 1 false + ×2 | 1 false + |
+
+✗ = JSON truncated at the token cap (crowds). † = ~14 real + a ladder of ~25 repeated boxes along a fence (repetition loop).
+
+### Conclusions
+
+1. **Caption schema works on all three** (69/69 parse with `format: json`). qwen2.5vl fastest (3.0 s), gemma4 slowest (4.6 s) and drifts (invents keys, `crowding: none` on 10-person frames).
+2. **For dots (`cx`,`cy`) use `qwen3-vl:8b` with the points prompt**: 22/23 parse, **3.8 s/frame**, only 1 truncation, counts track crowds (11–16 where the others cap out). Coordinates: `[x,y]` on a 0–1000 grid → divide by 1000 = the contract's normalised `cx`,`cy` directly.
+3. **Boxes are the wrong output shape**: 4 coords/person blows the token cap on crowds (qwen2.5vl ✗ on 2–4 crowd frames at 1500 tok, 35 s). Points halve tokens; still cap at ~30 people.
+4. **All models over-count on cluttered frames** — qwen3-vl 39 (ladder), gemma4 30 on CMR-0261. Mitigate: cap `num_predict` (~800), dedupe points closer than ~1.5 % of width, treat >25 as `crowd` flag + capped count.
+5. **False positives on empty frames are rare but real** (1 phantom person on CMR-0021 for qwen3/gemma). Confidence isn't exposed by ollama; use agreement (caption count vs points count) as the confidence proxy.
+6. **Coordinate conventions differ per family** and silently break overlays: qwen2.5vl = pixels of the sent image (send at 1456 long edge), qwen3-vl = xyxy/1000, gemma = **yxyx/1000** (points `[y,x]`). `ask.py convention()` encodes this — verified on frames, not assumed.
+7. Night frames (dark_lit) parsed fine on all three; too few night frames with people (1) to judge night counting.
+
+Recommendation for the endpoint: **qwen3-vl:8b, two calls per frame** (caption schema + points), ~7 s serial on the box today, ~2 s/frame at 4 concurrent — a 200-camera en-route sweep in ~7 min serial, well under 2 min concurrent. Keep qwen2.5vl:7b as the fallback (same prompts; only the coordinate convention changes).

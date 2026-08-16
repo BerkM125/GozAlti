@@ -20,8 +20,14 @@
   frames — the model rounds. Boxes prompt gives an honest count (8 vs "10").
 - boxes: `{"people":[{"bbox_2d":[x1,y1,x2,y2],"kind":...}]}` — dot = box centre works as "point".
 
+## Bench (Sat 18:00) — see MODELS.md for the table
+- qwen3-vl needs `think:false` on the request; ollama still returns the JSON in `thinking` for this model — `ask.py` falls back to that field. Works.
+- gemma4 grounds fine once read as `[y,x,y,x]/1000` (first pass mis-drew it as Qwen pixels).
+- points prompt (`prompts/points.txt`) is the production shape: fewer tokens, direct `cx,cy`.
+
 ## Next to try
-- qwen3-vl:8b on the same frames (`-m qwen3-vl:8b`; it grounds on a 0..1000 grid — ask.py handles it).
 - night / wet samples: does grounding hold in dark_lit frames?
-- combine: one call for caption + boxes (bigger prompt) vs two calls — latency vs quality.
+- combine: one call for caption + points vs two calls — latency vs quality.
+- dedupe/cap for points; `crowd` flag when >25.
+- Nemotron-3-Nano-Omni via llama.cpp (NVIDIA-branded VLM on the box) — one run for the judges' question.
 - Molmo2 pointing (points instead of boxes) needs a torch/vLLM path; not in ollama.
