@@ -68,7 +68,24 @@ Fixed by renaming it aside and letting torch recreate it; `TORCH_HOME` did NOT r
 - Clear route: objects, chip, and session all cleared.
 - Router heatmap: 90,832 evidence edges, discriminates citywide; downtown saturation is real data, not a ramp bug.
 
-## Still open
+## Round 2 (16 Aug ~04:15) - oscillation, visibility, warm-up
+
+**Route oscillation fixed in `pathfind/live.py` (cross-module, cleared by Dhruv).**
+Root cause: occupancy was rebuilt each tick from only the CURRENT corridor, and un-evidenced edges cost 0 while an evidenced empty street costs the 0.5 middle - so the shown route was penalized by its own cameras, every alternative rode free, and the optimum flipped endlessly (observed to v49).
+Fix: evidence persists per session (120 s TTL, 20 s hold on the higher people count against CNN flicker), previously-seen cameras stay hot, and a challenger polyline must beat the incumbent by a 5% cost margin under the SAME evidence for two consecutive ticks.
+Measured: 6 geometry flips/100 s before the margin, 0 flips/120 s after.
+If a demo route ever seems stuck, the margin is `SWITCH_MARGIN` in live.py - it is stickiness by design, not a bug.
+
+**CV visibility: dots in 2D, meshes in 3D.**
+The meshes were always rendering, but a 4.5 m car viewed top-down at route zoom is a few pixels - invisible.
+Every placed detection now also emits a Point feature; a circle layer (yellow vehicle / red person, white stroke) shows in 2D and hides in 3D where the meshes take over.
+The dock adds "Cameras see N people · M vehicles on this route" so the evidence is visible without hunting.
+Night frames genuinely produce fewer detections; zero detections on an empty street is correct output, not a bug.
+
+**No new vision cache - warm up instead (user decision).**
+media-ingest already caches CV per frame with a hot-camera prefetcher; a road-keyed cache on top would only add staleness risk and cannot beat the 60 s/camera upstream floor.
+Pre-demo warm-up: run the demo route once ~2 minutes before filming (the route marks its corridor hot), or `POST :8030/api/priority` with the corridor camera ids.
+First on-camera interactions during the take then answer from cache instantly.
 
 - Bearing calibration: fresh `ingest.graph` builds leave `bearing_deg` null, so FOV cones and some CV placements stay hidden until `POST /api/orient/{cid}` runs (unchanged from before this port).
 - LLM segment summaries (`:8030/api/path/summaries`): no proxy or consumer here yet; stretch.
