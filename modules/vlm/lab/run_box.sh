@@ -14,6 +14,10 @@
 #                       the container created lab/viewer/ before git could, and git then
 #                       could not write index.html into it. Running as the host user
 #                       keeps every artifact owned by acer01.
+#   -v /etc/passwd:ro   with --user 1000 the container has no passwd entry for that uid,
+#                       and torch calls getpwuid() while resolving a cache path, which
+#                       raises KeyError: 'getpwuid(): uid not found: 1000'. Mounting the
+#                       host's passwd read-only is the whole fix.
 #   -v torchcache       detector weights are pre-downloaded there; the box has no
 #                       outbound access to torch hub during a demo
 set -euo pipefail
@@ -21,6 +25,7 @@ LAB="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 IMAGE="${IMAGE:-vllm/vllm-openai:latest}"
 exec docker run --rm --gpus all --network host \
   --user "$(id -u):$(id -g)" -e HOME=/tmp -e TORCH_HOME=/root/.cache/torch \
+  -v /etc/passwd:/etc/passwd:ro -v /etc/group:/etc/group:ro \
   -v "$LAB":/lab -w /lab \
   -v /home/acer01/junk/torchcache:/root/.cache/torch \
   --entrypoint python3 "$IMAGE" "$@"
