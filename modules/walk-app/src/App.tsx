@@ -754,6 +754,13 @@ export default function App() {
               : "Search a destination, or tap the map to set your start."}
           </p>
         )}
+        {!origin && !dest && cameras.length > 0 && (
+          <p className="hint">
+            {cameras.length} camera{cameras.length === 1 ? "" : "s"} within{" "}
+            {NEARBY_RADIUS_M} m of {userPos ? "you" : "downtown"} are on the map - tap one to
+            watch its live view.
+          </p>
+        )}
         {origin && !dest && !pickOnMap && (
           <p className="hint">Now set where you're walking to.</p>
         )}

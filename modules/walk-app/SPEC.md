@@ -170,6 +170,7 @@ Asking for the cameras "near" one point on it - you, or the route's midpoint - o
 
 There is **no cap** when a route is active: a camera at the far end matters as much as one at the start.
 Without a route the panel falls back to a radius around you, capped at `NEARBY_CAMERA_LIMIT`.
+Those nearby cameras also render as map markers from first open (16 Aug) - `NEARBY_RADIUS_M` around you, or downtown when no position exists - so tapping one opens its live view before any trip is planned; the dock's empty state says so.
 
 The corridor is computed here rather than by sampling the route with repeated radius queries, which would both miss cameras between samples and double-count the ones near them.
 media-ingest answers `GET /api/cameras` with all 646 cameras from memory in ~30 ms and no upstream call, so this server caches that list for 5 minutes and measures against the whole set at once.

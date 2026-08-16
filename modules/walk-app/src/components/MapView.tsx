@@ -517,13 +517,11 @@ export default function MapView({
       if (origin) want.set("origin", { at: origin, node: el("mk mk-origin") });
       if (dest) want.set("dest", { at: dest, node: el("mk mk-dest") });
 
-      // Camera markers belong to a planned route: the corridor query is what
-      // gives them meaning ("these watch your way"). With no route, the map
-      // stays clean - the panel still lists what is near you - except for a
-      // camera the user has actually opened, which gets its marker so the
-      // viewer's frame can be placed on the street.
-      const mapCameras =
-        result || path ? cameras : cameras.filter((c) => c.camera_id === selectedCamera);
+      // With a route, these are the corridor cameras ("these watch your
+      // way"). Without one, they are the nearest cameras around you
+      // (NEARBY_RADIUS_M / NEARBY_CAMERA_LIMIT in config.ts) - shown from
+      // first open so a tap opens the live view before any trip is planned.
+      const mapCameras = cameras;
 
       for (const c of mapCameras) {
         const live = c.live_hls ? "mk-cam-live" : "";
