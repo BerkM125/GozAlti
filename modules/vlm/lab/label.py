@@ -29,8 +29,13 @@ HERE = Path(__file__).resolve().parent
 
 # WHAT WE MEAN BY "THE PEDESTRIAN PATH"
 #
-# The surface someone on foot would use to get through this block: the sidewalk if one
-# exists, the crosswalk where a route crosses, the shoulder if there is no sidewalk.
+# BUILT pedestrian infrastructure: a sidewalk, a marked walking path, or a crosswalk.
+# The test is "is there a surface, separated from traffic, that a person is MEANT to
+# use?" — not "could you physically put your feet somewhere". A bare shoulder beside a
+# ramp is walkable the way dirt is walkable; it is `no_sidewalk`, not a narrow path.
+# This matches what routing actually consumes: safe-walk's W_SIDEWALK term reads SDOT's
+# `sidewalk_ratio`, which counts built sidewalk and does not count shoulder.
+#
 # NOT the roadway. A tree down across the road blocks cars, not walkers — that is `clear`
 # for our purposes, because we route people on foot.
 #
@@ -38,11 +43,15 @@ HERE = Path(__file__).resolve().parent
 # It is a statement about physical passability, never about danger. The moment `blocked`
 # starts meaning "unsafe" we have broken the rule that is our differentiator (SPEC §7.10).
 #
+# `narrowed` and `blocked` therefore presuppose that infrastructure EXISTS and something
+# is on it. If there was never a sidewalk, the answer is `no_sidewalk` — not `blocked`.
+#
 # `no_sidewalk` is kept separate from `blocked` because they are different kinds of fact:
 # one is a permanent property of the street that SDOT already publishes (3,148 downtown
 # segments in sidewalks.geojson), the other is a transient condition only a camera sees.
 RUBRIC = [
-    "Judge the PEDESTRIAN surface only — sidewalk, crosswalk, or shoulder. Not the roadway.",
+    "Judge BUILT pedestrian infrastructure only — sidewalk, marked path, crosswalk. Not the roadway.",
+    "No built sidewalk = no_sidewalk, even if you could physically walk on the shoulder or dirt.",
     "Road blocked but sidewalk fine = clear. We route people, not cars.",
     "A blocked crosswalk counts: it is part of the walking path.",
     "Construction present but the path is open = clear. Construction is a separate flag.",
@@ -54,7 +63,7 @@ CHOICES = [
     ("clear", "1", "walk through normally, no deviation"),
     ("narrowed", "2", "you get through but squeezed — scaffolding, a car half on the walk, cones"),
     ("blocked", "3", "cannot get through on foot; must enter the roadway or turn back"),
-    ("no_sidewalk", "4", "no pedestrian surface exists at all — ramp, shoulder, freeway"),
+    ("no_sidewalk", "4", "no built walking infrastructure — ramp, bare shoulder, freeway"),
     ("unclear", "5", "too dark, too far or too obscured to judge"),
 ]
 VALID = {c for c, _, _ in CHOICES}
