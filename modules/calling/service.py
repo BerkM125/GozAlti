@@ -76,18 +76,24 @@ def blocked(number: str) -> bool:
 
 
 def post(url, data=None, headers=None, method="POST"):
-    """One HTTP call, returning (ok, detail). Never raises — a dead channel must not
-    take down the other channels."""
+    """One HTTP call, returning (ok, detail, body). Never raises — a dead channel must
+    not take down the other channels.
+
+    The body comes back even on success because not every provider signals failure with
+    a status code. CallMeBot in particular answers 200 with an error page when the
+    recipient has not authorised the bot, so a channel that trusted the status alone
+    would report a call that never happened."""
     req = urllib.request.Request(url, data=data, method=method,
                                  headers=headers or {})
     try:
         with urllib.request.urlopen(req, timeout=TIMEOUT) as r:
-            return True, f"{r.status}"
+            body = r.read()[:400].decode("utf-8", "replace")
+            return True, f"{r.status}", body
     except urllib.error.HTTPError as e:
         body = e.read()[:200].decode("utf-8", "replace")
-        return False, f"HTTP {e.code}: {body}"
+        return False, f"HTTP {e.code}: {body}", body
     except Exception as e:
-        return False, f"{type(e).__name__}: {e}"
+        return False, f"{type(e).__name__}: {e}", ""
 
 
 # ---------------------------------------------------------------- channels
@@ -166,7 +172,16 @@ def send_callmebot(msg, **_):
         "rpt": "2",     # say it twice; people miss the first sentence of a robocall
         "cc": "yes",    # carbon-copy as chat text, our insurance against the iOS bug
     })
-    return post(f"https://api.callmebot.com/start.php?{q}", None, {}, method="GET")
+    ok, detail, body = post(f"https://api.callmebot.com/start.php?{q}", None, {}, method="GET")
+    if ok:
+        low = re.sub(r"<[^>]+>", " ", body).lower()
+        # Their failure modes are prose, not status codes. The common one by far is a
+        # recipient who has not sent /start to @CallMeBot_txtbot yet.
+        if "error" in low or "not authorized" in low or "not found" in low:
+            hint = " (has the contact sent /start to @CallMeBot_txtbot?)" \
+                   if ("author" in low or "found" in low) else ""
+            return False, f"API refused: {' '.join(low.split())[:160]}{hint}", body
+    return ok, detail, body
 
 
 CHANNELS = {
@@ -197,8 +212,14 @@ def fan_out(message, contact, to):
         if out is None:
             results[name] = {"status": "not configured"}
             continue
-        ok, detail = out
+        ok, detail, body = out
+        # Carry what the provider actually said, not just our verdict on it. When a demo
+        # alert does not arrive, this line is the difference between debugging and
+        # guessing.
+        said = " ".join(re.sub(r"<[^>]+>", " ", body or "").split())[:140]
         results[name] = {"status": "sent" if ok else "failed", "detail": detail}
+        if said:
+            results[name]["provider_said"] = said
         reached = reached or ok
     return reached, results
 
