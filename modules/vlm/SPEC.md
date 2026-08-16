@@ -58,7 +58,7 @@ people; sustained throughput survives the live demo sweep.
 # on the box, from modules/vlm/
 ./run.sh install     # one-time: verify container+GPU, fetch detector weights, warm ollama
 ./run.sh start       # service on :8040
-./run.sh test        # 20 unit tests, then 5 live tests against the running service
+./run.sh test        # 20 unit tests, then 9 live tests against the running service
 ./run.sh restart     # after a git pull
 ./run.sh status|logs|stop
 ```
@@ -70,7 +70,45 @@ people; sustained throughput survives the live demo sweep.
 | `GET /health` | — | liveness, loaded models, counters |
 | `GET /flags` | — | the closed flag enum below |
 
-Measured on the GB10: **3.3 s per frame** end to end — detector 66 ms, VLM ~3.2 s.
+| `GET /cache` | — | hit rate, entries, GPU seconds saved |
+| `DELETE /cache` | — | clear it |
+
+### Throughput, all measured on the GB10
+
+| path | per frame |
+|---|---|
+| `/read`, cold | **~2.5 s** (detector 66–75 ms, VLM ~2.4 s) |
+| `/read_batch`, concurrency 2 | **2.48 s** (1.07× over serial) |
+| **any cached frame** | **2 ms** |
+
+Concurrency is 2 because that is where ollama saturates: measured 3.22 s/frame at 1,
+2.25 at 2, 2.27 at 4 with per-call latency doubling to 6.95 s. Going higher buys no
+throughput and punishes whoever is waiting on a single read. Raising it further needs
+`OLLAMA_NUM_PARALLEL` on the ollama service, which needs root.
+
+The detector is deliberately **not** batched — 74.5 ms/frame at batch 1 versus 85–87 ms
+batched, because frames differ in size and get padded to the largest. It stays serial
+under the GPU lock while VLM calls overlap around it, which pipelines the two stages.
+
+### The cache is what makes multiple users affordable
+
+Keyed on the **frame** — `(camera_id, path, mtime, captured_at)` — not on the camera and
+not on a wall clock. SDOT refreshes on a ~15 min sweep, so a reading is valid exactly as
+long as its frame is unchanged: we can never serve a stale reading of a replaced frame,
+and never re-read one that has not changed. TTL (900 s) is only a backstop for a camera
+that stops updating. LRU-bounded at 2000 entries.
+
+Three users walking the same 6-camera route, measured:
+
+| user 1 | user 2 | user 3 |
+|---|---|---|
+| 14.57 s | **0.00 s** | **0.00 s** |
+
+Tune with `VLM_CONCURRENCY`, `VLM_MAX_BATCH`, `VLM_CACHE_TTL`, `VLM_CACHE_MAX`.
+
+`/read_batch` preserves order, isolates per-frame failures so one missing file cannot
+sink a 40-camera sweep, and rejects batches over `MAX_BATCH` with 413 so a runaway
+caller cannot queue unbounded GPU work.
 
 Two guarantees the endpoint makes that the lab scripts did not:
 
