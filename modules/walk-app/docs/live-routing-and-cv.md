@@ -87,6 +87,16 @@ media-ingest already caches CV per frame with a hot-camera prefetcher; a road-ke
 Pre-demo warm-up: run the demo route once ~2 minutes before filming (the route marks its corridor hot), or `POST :8030/api/priority` with the corridor camera ids.
 First on-camera interactions during the take then answer from cache instantly.
 
+## Incident (16 Aug ~04:10) - Wowza unreachable, feeds went dark
+
+Symptom: no camera feeds anywhere.
+Cause: TCP connects to the Wowza HLS host (`61e0c5d388c2e.streamlock.net`) started timing out from this network while the seattle.gov snapshot host stayed at ~90 ms - a network-level cap/block toward Wowza, NOT an SDOT snapshot rate-limit (our 60 s/camera discipline held throughout).
+Amplifier: `feeds.latest_frame` tries HLS first for all 355 stream cameras and held the shared 4-slot fetch semaphore through ~33 s of timeouts, so snapshot fetches starved behind the dying HLS connects - feeds LOOKED fully dead.
+Fix: HLS circuit breaker in `media-ingest/ingest/feeds.py` (dbfaecf, cross-module bug fix, flag to Berkan) - 4 consecutive connection failures open it for 90 s, frames serve snapshots instantly, one probe per cooldown re-opens, so live video self-recovers when Wowza returns.
+Demo note: while the breaker is open, tiles show snapshots with honest ages; that is the expected degraded mode, not a bug.
+
+## Still open
+
 - Bearing calibration: fresh `ingest.graph` builds leave `bearing_deg` null, so FOV cones and some CV placements stay hidden until `POST /api/orient/{cid}` runs (unchanged from before this port).
 - LLM segment summaries (`:8030/api/path/summaries`): no proxy or consumer here yet; stretch.
 - demo-ui rows 1 (all-cameras layer) and 2 (HLS outside the nearby merge): not part of this port.
