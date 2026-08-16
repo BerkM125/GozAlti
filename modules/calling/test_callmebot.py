@@ -19,10 +19,10 @@ from service import classify_callmebot, blocked
 NOT_AUTHORISED = ("Checking Authorization for @zz_not_a_real_user_9931... Using bot: "
                   "@CallMeBot_API Authorization for user @zz_not_a_real_user_9931 is not "
                   "received. Warning! User not authorized. Click here to authorize")
-RATE_LIMITED = ("ERROR: Two calls to the same user (@bert_567) within 65 seconds is not "
+RATE_LIMITED = ("ERROR: Two calls to the same user (@demo_contact) within 65 seconds is not "
                 "allowed. This is to prevent the bot to overload the resources and colapse.")
-SUCCESS = ("Checking Authorization for @bert_567... Using bot: @CallMeBot_API16 "
-           "Autorization OK User:@bert_567 Text to speech:Test call from Gozalti Safe "
+SUCCESS = ("Checking Authorization for @demo_contact... Using bot: @CallMeBot_API16 "
+           "Autorization OK User:@demo_contact Text to speech:Test call from Gozalti Safe "
            "Walk. Adi is checking the hackathon alert system. Nothing is wrong.")
 
 
