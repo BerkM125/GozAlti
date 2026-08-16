@@ -6,3 +6,6 @@ lab/bench/
 lab/scene_out/
 lab/*.jsonl
 lab/detect_out/
+lab/clips/
+lab/video_out/
+lab/viewer/data/
