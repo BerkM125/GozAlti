@@ -31,11 +31,21 @@ So there are exactly two free paths to a ringing phone, and this module implemen
 3. `./run.sh`, then `curl -X POST localhost:8060/alert -H 'Content-Type: application/json' \
    -d '{"contact":"Dhruv","message":"Test from Safe Walk."}'`
 
-Two limits worth knowing before you demo on it: the spoken text is capped at **256
+Three limits worth knowing before you demo on it, one of which is undocumented: the spoken text is capped at **256
 characters** (we truncate deliberately rather than let it cut mid-word), and Telegram's
 **iOS app has a bug where call audio does not play**. The ring still lands, and `cc=yes`
 delivers the same text as a chat message, so an iPhone contact gets the buzz and the
 words but not the voice. Do not make it the only armed channel for an iPhone contact.
+
+The undocumented one: **two calls to the same user within 65 seconds are refused.** Their
+API returns HTTP 200 with the refusal in the page body, so budget a minute between demo
+takes and do not stack a rehearsal immediately before the real run.
+
+CallMeBot signals every outcome — success, unauthorised recipient, rate limit — as HTTP
+200 with prose in an HTML page. `service.py` parses that prose and only reports `sent` on
+a positive acknowledgement. The `provider_said` field in every `/alert` response carries
+their exact sentence, so a call that does not arrive can be diagnosed rather than guessed
+at.
 
 ## Setup — Twilio, ~10 minutes, real cellular ring
 

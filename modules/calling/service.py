@@ -164,13 +164,47 @@ def send_twilio(msg, to="", **_):
 
 
 
+def classify_callmebot(text: str):
+    """Decide what CallMeBot's HTML page actually says. Pure, so it can be tested against
+    captured responses without ringing anyone — see test_callmebot.py.
+
+    Everything they return is HTTP 200, including refusals, so this function is the only
+    thing standing between a failed call and the app telling someone "help is coming".
+    It is deliberately anchored on exact phrases rather than loose keywords: an earlier
+    version searched the whole page for words like "ok" and "error" and misread a
+    successful call as a failure, because a marketing page contains both.
+
+    Note "Autorization OK" — their typo, not ours. Matching only the correct spelling
+    would fail every successful call.
+    """
+    t = " ".join((text or "").split()).lower()
+    if not t:
+        return False, "empty response"
+    if "is not received" in t or "not authorized" in t:
+        return False, "recipient has not authorised — send /start to @CallMeBot_txtbot"
+    if "within 65 seconds is not allowed" in t:
+        return False, "rate limited: 65 s between calls to the same user"
+    if t.startswith("error:") or " error: " in t:
+        i = t.find("error:")
+        return False, t[i:i + 160]
+    if "autorization ok" in t or "authorization ok" in t:
+        return True, "authorised, text handed to TTS"
+    if "queued" in t or "call in progress" in t:
+        return True, "queued"
+    # Neither a recognised success nor a recognised failure. Report the uncertainty
+    # rather than guessing in either direction.
+    return False, f"unrecognised response: {t[:160]}"
+
+
 def send_callmebot(msg, **_):
     """Rings the contact's Telegram and reads the message aloud. Free, no account, no
     credit card — the recipient authorises once by sending /start to @CallMeBot_txtbot.
 
-    Two caveats that matter and are not obvious:
+    Three caveats that matter and are not all documented:
       * 256 character hard limit on the spoken text, so we truncate deliberately rather
         than let the service silently cut mid-sentence.
+      * Two calls to the same user within 65 seconds are refused. Budget a minute
+        between demo takes.
       * Telegram's iOS app has a known bug where call audio does not play. The ring still
         arrives, which is most of the value, and `cc=yes` sends the same text as a chat
         message so the content survives even when the audio does not. Do not rely on this
@@ -186,19 +220,10 @@ def send_callmebot(msg, **_):
         "cc": "yes",    # carbon-copy as chat text, our insurance against the iOS bug
     })
     ok, detail, body = post(f"https://api.callmebot.com/start.php?{q}", None, {}, method="GET")
-    if ok:
-        low = visible_text(body).lower()
-        # Their failure modes are prose, not status codes. The common one by far is a
-        # recipient who has not sent /start to @CallMeBot_txtbot yet.
-        if "error" in low or "not authorized" in low or "not found" in low:
-            hint = " (has the contact sent /start to @CallMeBot_txtbot?)" \
-                   if ("author" in low or "found" in low) else ""
-            return False, f"API refused: {low[:160]}{hint}", body
-        # Only a positive acknowledgement counts as sent. Anything else is reported as
-        # unclear rather than success — the user has been told someone is being called.
-        if not any(k in low for k in ("queued", "call in progress", "calling", "sent", "ok")):
-            return False, f"unclear response: {low[:160]}", body
-    return ok, detail, body
+    if not ok:
+        return ok, detail, body
+    good, why = classify_callmebot(visible_text(body))
+    return good, why, body
 
 
 CHANNELS = {
