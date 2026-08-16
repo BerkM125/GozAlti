@@ -75,6 +75,19 @@ def blocked(number: str) -> bool:
     )
 
 
+def visible_text(html: str) -> str:
+    """The human-readable text of a response, with script and style blocks removed.
+
+    Providers that answer in HTML bury their status message under a page of analytics
+    and markup. Naively stripping tags surfaces the Google Analytics snippet instead of
+    the sentence we care about, which is exactly what happened the first time.
+    """
+    t = re.sub(r"(?is)<(script|style|head)\b.*?</\1>", " ", html or "")
+    t = re.sub(r"<[^>]+>", " ", t)
+    t = t.replace("&nbsp;", " ").replace("&amp;", "&")
+    return " ".join(t.split())
+
+
 def post(url, data=None, headers=None, method="POST"):
     """One HTTP call, returning (ok, detail, body). Never raises — a dead channel must
     not take down the other channels.
@@ -87,7 +100,7 @@ def post(url, data=None, headers=None, method="POST"):
                                  headers=headers or {})
     try:
         with urllib.request.urlopen(req, timeout=TIMEOUT) as r:
-            body = r.read()[:400].decode("utf-8", "replace")
+            body = r.read()[:20000].decode("utf-8", "replace")
             return True, f"{r.status}", body
     except urllib.error.HTTPError as e:
         body = e.read()[:200].decode("utf-8", "replace")
@@ -174,13 +187,17 @@ def send_callmebot(msg, **_):
     })
     ok, detail, body = post(f"https://api.callmebot.com/start.php?{q}", None, {}, method="GET")
     if ok:
-        low = re.sub(r"<[^>]+>", " ", body).lower()
+        low = visible_text(body).lower()
         # Their failure modes are prose, not status codes. The common one by far is a
         # recipient who has not sent /start to @CallMeBot_txtbot yet.
         if "error" in low or "not authorized" in low or "not found" in low:
             hint = " (has the contact sent /start to @CallMeBot_txtbot?)" \
                    if ("author" in low or "found" in low) else ""
-            return False, f"API refused: {' '.join(low.split())[:160]}{hint}", body
+            return False, f"API refused: {low[:160]}{hint}", body
+        # Only a positive acknowledgement counts as sent. Anything else is reported as
+        # unclear rather than success — the user has been told someone is being called.
+        if not any(k in low for k in ("queued", "call in progress", "calling", "sent", "ok")):
+            return False, f"unclear response: {low[:160]}", body
     return ok, detail, body
 
 
@@ -216,7 +233,7 @@ def fan_out(message, contact, to):
         # Carry what the provider actually said, not just our verdict on it. When a demo
         # alert does not arrive, this line is the difference between debugging and
         # guessing.
-        said = " ".join(re.sub(r"<[^>]+>", " ", body or "").split())[:140]
+        said = visible_text(body)[:200]
         results[name] = {"status": "sent" if ok else "failed", "detail": detail}
         if said:
             results[name]["provider_said"] = said
