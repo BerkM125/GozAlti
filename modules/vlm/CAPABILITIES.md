@@ -108,7 +108,24 @@ measurement, not a guess. **Untested — do not quote a number for it.**
 
 ---
 
-## CV assisting the VLM — measured, and it fixed a wrong answer
+## CV assisting the VLM — RETRACTED: it produced false positives
+
+> **This section originally claimed the crop path "fixed a wrong answer" on CMR-0236.
+> That was wrong.** Hand-checking the full frame showed the construction equipment is
+> staged in the roadway's curb lane behind fencing, not on a sidewalk. The full-frame
+> models were correct with `clear`; the crop asserted `on_walking_path: true` and was
+> the one hallucinating. Re-run across three disputed frames the crop path produced
+> **two false positives to the full frame's zero**. See `RESULTS.md` §4b.
+>
+> **Why**: cropping removes the context needed to judge whether an object sits on the
+> pedestrian path. Close up, equipment looks like an obstruction; zoomed out it is
+> plainly in a traffic lane. Use `assist.py` to ask *what is this object*, never
+> *does it block the path*.
+>
+> The original text is kept below because the error pattern — writing up a plausible
+> result without checking the source image — is the lesson.
+
+## (original, incorrect) CV assisting the VLM — measured, and it fixed a wrong answer
 
 `lab/assist.py`. Cheap CV decides **where to look**, then the VLM answers a narrow
 question about a large crop instead of a broad question about a small blurry region.
