@@ -1,6 +1,7 @@
 # environments
 .venv/
 venv/
+planning_specs/
 node_modules/
 __pycache__/
 *.pyc
@@ -14,6 +15,7 @@ Thumbs.db
 experiments/safe-walk/data/
 experiments/surukamera/cache/
 experiments/surukamera/debug/
+experiments/berkan_testing/
 modules/*/data/
 demo/fallback/*.mp4
 demo/fallback/*.mov

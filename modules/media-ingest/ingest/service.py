@@ -1,0 +1,342 @@
+"""media-ingest service on :8030 (SPEC §6.8).
+
+The lat/lon -> cameras -> feeds pipeline as REST, for the frontend, harness,
+vlm, and synthesis:
+
+  GET  /api/health                          module status
+  GET  /api/cameras                         all graph nodes (light form)
+  GET  /api/camera/{cid}                    full node incl. bearing + live state
+  GET  /api/nearby?lat=&lon=&radius_m=      cameras within radius, nearest first
+  GET  /api/convergence?lat=&lon=&radius_m= CameraConvergence §6.7 (also ?street=)
+  GET  /api/streets                         street -> camera-count index
+  GET  /api/street/{name}                   ordered cameras on the street
+  GET  /api/frame/{cid}/latest.jpg          newest frame (rate-gated upstream)
+  GET  /api/frame/{cid}/record              its FrameRecord §6.1
+  GET  /api/hls/{key}/{path}                HLS proxy (relative refs resolve here)
+  GET  /api/satellite/{cid}?annotate=       satellite crop (arrows optional)
+  POST /api/bearing/{cid} {bearing_deg}     manual FOV set (calibration UI)
+  DELETE /api/bearing/{cid}                 clear manual, back to auto layers
+  POST /api/orient/{cid}                    re-run orientation stack on one camera
+  GET  /api/detections[/{cid}]              live object state per node
+  POST /api/analyze/{cid}                   single-camera analysis now (3.1)
+  POST /api/sweep/start | /api/sweep/stop   BFS traversal loop control
+  GET  /api/sweep/status
+  POST /api/priority {"camera_ids": [...]}  hot lane (module SPEC)
+  GET  /api/tile/{z}/{x}/{y}                dark basemap proxy (cached)
+  GET  /api/sat-tile/{z}/{x}/{y}            Esri satellite proxy (cached)
+  GET  /api/buildings?s=&w=&n=&e=           OSM building footprints (3D view)
+
+Run: uvicorn ingest.service:app --port 8030
+"""
+from __future__ import annotations
+
+import asyncio
+import json
+import time
+
+from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse, Response
+from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel
+
+from . import config, detect, feeds, netboot, orientation
+from .graph import CameraGraph
+
+app = FastAPI(title="GozAlti media-ingest")
+app.add_middleware(CORSMiddleware, allow_origins=["*"],
+                   allow_methods=["*"], allow_headers=["*"])
+
+G = CameraGraph.load()
+detect.load_persisted()
+http_async = netboot.make_async_client()
+_sweep_task: asyncio.Task | None = None
+
+
+def _node_or_404(cid: str) -> dict:
+    node = G.nodes.get(cid)
+    if node is None:
+        raise HTTPException(404, f"unknown camera id {cid!r}")
+    return node
+
+
+def _light(n: dict) -> dict:
+    b = n.get("bearing") or {}
+    live = detect.live_state(n["camera_id"])
+    return {
+        "camera_id": n["camera_id"], "key": n.get("key"),
+        "lat": n["lat"], "lon": n["lon"],
+        "desc": n.get("location_desc"), "street": n.get("street_name"),
+        "neighborhood": n.get("neighborhood"), "ownership": n.get("ownership"),
+        "has_stream": bool(n.get("has_stream")),
+        "hls": f"/api/hls/{n['key']}/playlist.m3u8" if n.get("has_stream") else None,
+        "snapshot": f"/api/frame/{n['camera_id']}/latest.jpg",
+        "bearing_deg": b.get("bearing_deg"),
+        "bearing_conf": b.get("bearing_conf"),
+        "bearing_basis": b.get("basis"),
+        "road_axis_deg": n.get("road_axis_deg"),
+        "n_detections": len(live.get("detections", [])) if live.get("ok") else None,
+        "dist_m": n.get("dist_m"),
+    }
+
+
+# ------------------------------------------------------------------- graph
+
+@app.get("/api/health")
+def api_health():
+    return {"module": "media-ingest", "port": 8030,
+            "graph": G.artifact["counts"], "sweep": detect.sweep_status()}
+
+
+@app.get("/api/cameras")
+def api_cameras():
+    return [_light(n) for n in G.nodes.values()]
+
+
+@app.get("/api/camera/{cid}")
+def api_camera(cid: str):
+    node = _node_or_404(cid)
+    return {**node, "live": detect.live_state(cid) or None,
+            "links": _light(node)}
+
+
+@app.get("/api/nearby")
+def api_nearby(lat: float, lon: float, radius_m: float = 100.0):
+    return {"query": {"lat": lat, "lon": lon, "radius_m": radius_m},
+            "street_near": G.street_near(lat, lon, max(radius_m, 150.0)),
+            "cameras": [_light(n) for n in G.nearby(lat, lon, radius_m)]}
+
+
+@app.get("/api/convergence")
+def api_convergence(lat: float | None = None, lon: float | None = None,
+                    radius_m: float = 300.0, street: str | None = None):
+    if street is None and (lat is None or lon is None):
+        raise HTTPException(422, "give lat+lon or street")
+    return G.convergence(lat, lon, radius_m, street)
+
+
+@app.get("/api/streets")
+def api_streets():
+    return G.streets()
+
+
+@app.get("/api/street/{name}")
+def api_street(name: str):
+    nodes = G.street(name)
+    if not nodes:
+        raise HTTPException(404, f"no cameras on street {name!r}")
+    return [_light(n) for n in nodes]
+
+
+# ------------------------------------------------------------------- frames
+
+@app.get("/api/frame/{cid}/latest.jpg")
+def api_frame(cid: str):
+    _node_or_404(cid)
+    blob = feeds.latest_frame_bytes(cid, G.nodes)
+    if blob is None:
+        raise HTTPException(502, "no frame available for this camera")
+    return Response(content=blob, media_type="image/jpeg",
+                    headers={"Cache-Control": "no-store"})
+
+
+@app.get("/api/frame/{cid}/record")
+def api_frame_record(cid: str):
+    _node_or_404(cid)
+    rec = feeds.latest_record(cid)
+    if rec is None:
+        raise HTTPException(404, "no FrameRecord yet for this camera")
+    return rec
+
+
+@app.get("/api/hls/{key}/{path:path}")
+async def api_hls(key: str, path: str):
+    url = f"{config.HLS_BASE}/{key}.stream/{path}"
+    try:
+        r = await http_async.get(url, timeout=20)
+    except Exception as exc:
+        raise HTTPException(502, f"upstream fetch failed: {exc}")
+    if r.status_code != 200:
+        raise HTTPException(r.status_code, "upstream error")
+    ct = ("application/vnd.apple.mpegurl" if path.endswith(".m3u8")
+          else "video/mp2t")
+    return Response(content=r.content, media_type=ct,
+                    headers={"Cache-Control": "no-store"})
+
+
+# -------------------------------------------------------------- orientation
+
+@app.get("/api/satellite/{cid}")
+def api_satellite(cid: str, zoom: int = 18, annotate: bool = True):
+    node = _node_or_404(cid)
+    data = orientation.satellite_crop(node, zoom=min(max(zoom, 15), 19),
+                                      annotate=annotate)
+    if data is None:
+        raise HTTPException(502, "satellite imagery unavailable")
+    return Response(content=data, media_type="image/jpeg",
+                    headers={"Cache-Control": "max-age=86400"})
+
+
+class BearingBody(BaseModel):
+    bearing_deg: float
+
+
+@app.post("/api/bearing/{cid}")
+def api_bearing_set(cid: str, body: BearingBody):
+    node = _node_or_404(cid)
+    rec = orientation.manual_set(cid, body.bearing_deg)
+    node["bearing"] = {"bearing_deg": rec["bearing_deg"], "bearing_conf": 0.95,
+                       "resolved": True, "basis": "manual-confirmed",
+                       "layers": [{"layer": "manual", "ok": True, **rec}],
+                       "computed_at": time.time()}
+    G.save()
+    return node["bearing"]
+
+
+@app.delete("/api/bearing/{cid}")
+def api_bearing_clear(cid: str):
+    node = _node_or_404(cid)
+    orientation.manual_clear(cid)
+    orientation.satvlm_invalidate(cid)
+    node["bearing"] = None
+    G.save()
+    return {"cleared": cid}
+
+
+@app.post("/api/orient/{cid}")
+def api_orient_one(cid: str):
+    node = _node_or_404(cid)
+    blob, _rec = feeds.latest_frame(node)
+    node["bearing"] = orientation.resolve(node, blob, time.time())
+    G.save()
+    return node["bearing"]
+
+
+# --------------------------------------------------------------- detections
+
+@app.get("/api/detections")
+def api_detections():
+    return detect.live_state()
+
+
+@app.get("/api/detections/{cid}")
+def api_detections_one(cid: str):
+    _node_or_404(cid)
+    return detect.live_state(cid) or {}
+
+
+@app.post("/api/analyze/{cid}")
+def api_analyze(cid: str):
+    _node_or_404(cid)
+    res = detect.analyze_camera(G, cid)
+    if res is None:
+        raise HTTPException(502, "analysis failed")
+    return res
+
+
+class PriorityBody(BaseModel):
+    camera_ids: list[str]
+
+
+@app.post("/api/priority")
+def api_priority(body: PriorityBody):
+    return {"focus": detect.set_focus(body.camera_ids)}
+
+
+@app.post("/api/sweep/start")
+async def api_sweep_start():
+    global _sweep_task
+    if _sweep_task and not _sweep_task.done():
+        return detect.sweep_status()
+    _sweep_task = asyncio.create_task(detect.run_sweep_loop(G))
+    return detect.sweep_status()
+
+
+@app.post("/api/sweep/stop")
+async def api_sweep_stop():
+    detect.stop_sweep()
+    return detect.sweep_status()
+
+
+@app.get("/api/sweep/status")
+def api_sweep_status():
+    return detect.sweep_status()
+
+
+# -------------------------------------------------------------------- tiles
+
+async def _cached_tile(cache_dir, name: str, url: str, media: str):
+    p = cache_dir / name
+    if p.exists():
+        return FileResponse(p, media_type=media)
+    try:
+        r = await http_async.get(url, timeout=20)
+        r.raise_for_status()
+    except Exception as exc:
+        raise HTTPException(502, f"tile fetch failed: {exc}")
+    p.write_bytes(r.content)
+    return Response(content=r.content, media_type=media)
+
+
+@app.get("/api/tile/{z}/{x}/{y}")
+async def api_tile(z: int, x: int, y: int):
+    return await _cached_tile(config.TILES, f"{z}_{x}_{y}.png",
+                              config.DARK_TILE.format(z=z, x=x, y=y), "image/png")
+
+
+@app.get("/api/sat-tile/{z}/{x}/{y}")
+async def api_sat_tile(z: int, x: int, y: int):
+    return await _cached_tile(config.SAT_TILES, f"{z}_{x}_{y}.jpg",
+                              config.ESRI_TILE.format(z=z, y=y, x=x), "image/jpeg")
+
+
+@app.get("/api/buildings")
+async def api_buildings(s: float, w: float, n: float, e: float):
+    """OSM building footprints for the bbox as GeoJSON — the 3D extrusion
+    layer in the test UI. Cached per rounded bbox."""
+    key = f"bld_{s:.3f}_{w:.3f}_{n:.3f}_{e:.3f}.json"
+    p = config.TILES / key
+    if p.exists():
+        return json.loads(p.read_text(encoding="utf-8"))
+    if (n - s) > 0.03 or (e - w) > 0.04:
+        raise HTTPException(422, "bbox too large; zoom in before loading 3D")
+    q = (f'[out:json][timeout:60];way["building"]({s},{w},{n},{e});out geom;')
+    try:
+        r = await http_async.post(config.OVERPASS, data={"data": q}, timeout=90)
+        r.raise_for_status()
+        osm = r.json()
+    except Exception as exc:
+        raise HTTPException(502, f"overpass failed: {exc}")
+    feats = []
+    for el in osm.get("elements", []):
+        geom = el.get("geometry")
+        if not geom or len(geom) < 3:
+            continue
+        try:
+            levels = float(el.get("tags", {}).get("building:levels", "2"))
+        except ValueError:
+            levels = 2.0
+        try:
+            height = float(str(el.get("tags", {}).get("height", "")).split()[0])
+        except (ValueError, IndexError):
+            height = levels * 3.2
+        feats.append({
+            "type": "Feature",
+            "properties": {"height": height},
+            "geometry": {"type": "Polygon",
+                         "coordinates": [[[g["lon"], g["lat"]] for g in geom]]},
+        })
+    gj = {"type": "FeatureCollection", "features": feats}
+    p.write_text(json.dumps(gj), encoding="utf-8")
+    return gj
+
+
+# ------------------------------------------------- optional test-UI mounting
+
+_UI_DIR = config.REPO_ROOT / "experiments" / "berkan_testing"
+if _UI_DIR.exists():
+    @app.get("/")
+    def index():
+        return FileResponse(_UI_DIR / "index.html")
+
+    app.mount("/static", StaticFiles(directory=_UI_DIR), name="static")
