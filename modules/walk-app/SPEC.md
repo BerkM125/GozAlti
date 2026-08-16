@@ -8,7 +8,13 @@ Owner: Dhruv. Consumes media-ingest (`:8030`). Does not touch `modules/map-front
 
 `modules/map-frontend` is Ioli's lane and stays untouched.
 This module is the mobile-first app: a glass interface on a light-only vector map, a 2D/3D perspective toggle with extruded buildings, a live-camera panel, and detections plotted around the walker.
-It also carries the routing that `modules/harness` specs but has never contained - `modules/harness/` and `modules/synthesis/` are still SPEC-only, with zero source.
+It also carries its own pedestrian routing, written when `modules/harness` was still SPEC-only.
+
+**Note on the overlap with `modules/harness`.** Harness landed its own A* router in `8a3ad41`, so the repo now has two.
+They are not interchangeable: harness builds its graph by fetching Overpass at build time into `modules/harness/data/walk_graph.json`, which is not committed, so it cannot route on a fresh checkout without a network step; this module builds in ~90 ms from `experiments/surukamera/data/osm_ways.json`, which is committed.
+Harness also derives `collisions`, `live_penalty`, `confidence` and `stale` from `_jitter()`, a PRNG seeded by OSM way id, which conflicts with the repo rule against numbers that look real but are not.
+Which router the demo uses is a call for the team, not something this module should decide unilaterally.
+`modules/synthesis/` is still SPEC-only, which is why the alert stream here has nothing to push.
 
 ## What is implemented
 
