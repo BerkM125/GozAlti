@@ -60,13 +60,46 @@ actually reads** comes from the VLM:
 Delete the detector and we lose precision and speed. **Delete the VLM and there is no
 product** — just dots. That is the framing, and it is true, not spin.
 
+## RESULT: we ran the bench, and VSS's own VLM lost
+
+`Cosmos-Reason1-7B` served on vLLM on the Spark, versus `qwen3-vl:8b` on ollama.
+Identical prompt (`prompts/insight.txt`), identical 23 frames, detector counts injected
+for both.
+
+| | cosmos-reason1 (VSS default) | qwen3-vl:8b |
+|---|---|---|
+| mean latency | 11.33 s | **6.31 s** |
+| p90 | 12.47 s | **8.31 s** |
+| JSON parse | 23/23 | 23/23 |
+| **safety verdicts asserted** | **3/23 (13%)** ✗ | **0/23** ✓ |
+| `no_sidewalk` found | 2 | **3** |
+| `construction` found | 3 | **4** |
+| walkway agreement | 22/23 — the one disagreement (`I5UnionRev`, a reversible freeway lane) qwen3-vl called `no_sidewalk` and Cosmos called `clear`; qwen3-vl is right | |
+
+Cosmos is 1.8x slower, finds fewer hazards, misses a no-sidewalk freeway segment, and
+breaks our hard "never assert safety" rule on 13% of frames — *"allowing pedestrians to
+cross safely"*, despite the prompt explicitly forbidding it (`lab/verdict_check.py`
+catches this mechanically because prompt text did not hold).
+
+Its prose reasoning is genuinely richer — it explains *why* a ramp has no sidewalk rather
+than just flagging it. That is real, and worth revisiting if the verdict problem is
+promptable away. It is not worth shipping today.
+
+**Decision: `qwen3-vl:8b` is the production reasoning model.** Cosmos stays served for
+the demo as the VSS artifact and the comparison.
+
+**What to say on stage** — this is stronger than "we used VSS's model":
+> "We served Cosmos-Reason1, the VLM the VSS blueprint uses, on the Spark, and benched it
+> against Qwen3-VL on our own frames. Cosmos was 1.8x slower, missed a no-sidewalk
+> segment, and asserted pedestrian safety on 13% of frames — which our product rules
+> forbid. So we ship Qwen3-VL. Here are the numbers."
+
+Reproduce: `lab/insight.py 'samples/*.jpg' -m cosmos-reason1 --api openai` vs
+`-m qwen3-vl:8b`, then `lab/verdict_check.py insight_*.jsonl`.
+
 ## What we build, in order
 
-1. **Cosmos-Reason1 served on vLLM** (level 2). Bench it against `qwen3-vl:8b` on
-   `prompts/insight.txt` over the 23-frame set: parse rate, latency, and whether its
-   physical-world reasoning is actually better on blocked-walkway frames. If it wins or
-   ties, it becomes the default and the pitch gets its sentence. If it loses badly, we
-   say so and keep qwen3-vl — **measured, not assumed**.
+1. ~~Cosmos-Reason1 served and benched~~ ✅ **done — see result above.**
 2. **Chunk → caption → index → summarize** over real video clips (in progress). VSS's
    literal shape: 60 s clips from 4 downtown cameras, chunked, VLM-captioned per chunk,
    then a whole-clip summary synthesized from the chunk captions.

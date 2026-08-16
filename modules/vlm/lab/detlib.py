@@ -12,15 +12,37 @@ are already in ~/junk/torchcache on the box:
   maskrcnn     maskrcnn_resnet50_fpn_v2     + pixel masks  people + vehicles
   keypointrcnn keypointrcnn_resnet50_fpn    + 17 keypoints PEOPLE ONLY (person class)
 
-Measured on the GB10 over 23 stills (warmup per config, min-of-2):
-fasterrcnn 64.4 ms, maskrcnn 72.2 ms, keypointrcnn 60.1 ms. The keypoint model is
-the cheapest because it only has one class to score, and it is the only one that
-gives facing direction.
+Measured on the GB10 at min_size=800, 24 video frames, 20 s warmup, order
+counterbalanced (video.py --bench):
 
-Input resolution is currently irrelevant to cost and to recall: torchvision's
-detection transform resizes internally to min_size=800 / max_size=1333, so a 1080p
-frame and a 1024-capped frame become the same tensor (measured: 64.4 vs 64.6 ms,
-133 vs 134 people). `min_size=` on the loader is the knob that actually changes it.
+              720x480 clip     1920x1080 clip
+  fasterrcnn      64.5 ms          68.6 ms
+  maskrcnn        68.4 ms          76.3 ms
+  keypointrcnn    59.1 ms          66.0 ms
+
+The keypoint model is the cheapest because it scores one class, and it is the only
+one that gives facing direction.
+
+Resolution: the FILE's resolution is indeed irrelevant, because torchvision's
+detection transform resizes everything to min_size=800 / max_size=1333 before the
+model sees it. `min_size` itself is very far from irrelevant, and this is the knob
+worth spending on. Measured people found over the same 24 frames:
+
+  min_size          800   1200   1600      cost vs 800
+  1080p  fasterrcnn  235    246    265       1.0x / 2.0x / 3.2x
+         maskrcnn    250    281    303
+         keypoint    240    290    319
+  480p   fasterrcnn   75     89     61
+         maskrcnn     79     91     74
+
+On a source that genuinely has the pixels, raising min_size finds substantially
+more distant pedestrians — boxes under 5% of frame height went 24 -> 27 -> 42 for
+fasterrcnn on the 1080p clip, and mean confidence barely moved (0.874 -> 0.862),
+so these are not junk detections. On a 480p source the curve turns over: past
+about 1200 you are interpolating detail that was never captured and the box models
+get worse. Match min_size to what the camera actually resolves; there is no single
+right value. Precision is unverified either way — we have no labels for these
+frames, so "more detections" is measured and "more correct detections" is not.
 """
 import math, time
 from pathlib import Path
@@ -267,8 +289,17 @@ def _hsv(h, s, v):
 
 
 def draw(src, people, note, out_path, tracks_by_index=None, show_skeleton=True,
-         show_mask=True, trails=None):
-    """Annotate one frame. `tracks_by_index[i]` = track id for people[i], if tracked."""
+         show_mask=True, trails=None, skeleton_min_px=54, label_min_px=22,
+         centroid_min_px=34):
+    """Annotate one frame. `tracks_by_index[i]` = track id for people[i], if tracked.
+
+    Every mark scales with the box it belongs to. The first version drew a fixed
+    4 px centroid dot and 2 px keypoints on every detection, which was fine on a
+    close pedestrian and completely covered a distant one — on a 720x480 SDOT frame
+    a person at the far crosswalk is about 30 px tall, so the annotation was hiding
+    the thing it was annotating. Small boxes now get a thin outline and nothing else;
+    skeletons and centroids only appear once there is room for them to mean anything.
+    """
     from PIL import Image, ImageDraw
     with Image.open(src) as im:
         im = im.convert("RGB")
@@ -291,27 +322,34 @@ def draw(src, people, note, out_path, tracks_by_index=None, show_skeleton=True,
             tid = tracks_by_index[i] if tracks_by_index else None
             col = track_color(tid) if tid is not None else GREEN
             x1, y1, x2, y2 = p["box"]
-            d.rectangle([x1, y1, x2, y2], outline=col, width=3)
-            d.rectangle([x1 + 1, y1 + 1, x2 - 1, y2 - 1], outline=(16, 40, 26), width=1)
-            cx, cy = p["cx"] * im.width, p["cy"] * im.height
-            d.ellipse([cx - 4, cy - 4, cx + 4, cy + 4], fill=RED, outline="white", width=1)
-            if show_skeleton and p.get("keypoints"):
+            bh = y2 - y1
+            lw = 1 if bh < 30 else 2 if bh < 80 else 3
+            d.rectangle([x1, y1, x2, y2], outline=col, width=lw)
+            if bh >= centroid_min_px:
+                cx, cy = p["cx"] * im.width, p["cy"] * im.height
+                r = 2 if bh < 90 else 3
+                d.ellipse([cx - r, cy - r, cx + r, cy + r], fill=RED)
+            if show_skeleton and p.get("keypoints") and bh >= skeleton_min_px:
                 kp = p["keypoints"]
                 for a, b in SKELETON:
                     pa, pb = kp[KP[a]], kp[KP[b]]
                     if pa[2] >= KP_VISIBLE and pb[2] >= KP_VISIBLE:
-                        d.line([pa[0], pa[1], pb[0], pb[1]], fill=AMBER, width=2)
-                for x, y, s in kp:
-                    if s >= KP_VISIBLE:
-                        d.ellipse([x - 2, y - 2, x + 2, y + 2], fill=(255, 255, 255))
-            tag = f"#{tid}" if tid is not None else f"{i + 1}"
-            if p.get("facing"):
-                tag += " " + {"toward_camera": "^", "away_from_camera": "v",
-                              "frame_left": "<", "frame_right": ">",
-                              "side_on": "|"}.get(p["facing"], "")
-            d.text((x1 + 2, max(0, y1 - 11)), f"{tag} {p['conf']:.2f}", fill=col)
+                        d.line([pa[0], pa[1], pb[0], pb[1]], fill=AMBER, width=1)
+                if bh >= skeleton_min_px * 1.6:
+                    for x, y, sc in kp:
+                        if sc >= KP_VISIBLE:
+                            d.ellipse([x - 1, y - 1, x + 1, y + 1], fill=(255, 255, 255))
+            if bh >= label_min_px:
+                tag = f"#{tid}" if tid is not None else f"{i + 1}"
+                if p.get("facing"):
+                    tag += {"toward_camera": "\u2191", "away_from_camera": "\u2193",
+                            "frame_left": "\u2190", "frame_right": "\u2192",
+                            "side_on": "|"}.get(p["facing"], "")
+                d.text((x1, max(0, y1 - 10)), tag, fill=col)
         if note:
-            d.rectangle([0, 0, min(im.width, 10 + 7 * len(note)), 20], fill=(0, 0, 0))
-            d.text((5, 4), note, fill=(255, 255, 255))
+            # bottom bar: the SDOT cameras burn their own caption into the TOP of the frame
+            w = min(im.width, 10 + 6 * len(note))
+            d.rectangle([0, im.height - 18, w, im.height], fill=(0, 0, 0))
+            d.text((5, im.height - 14), note, fill=(255, 255, 255))
         Path(out_path).parent.mkdir(parents=True, exist_ok=True)
         im.save(out_path, quality=88)

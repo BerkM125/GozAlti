@@ -108,6 +108,54 @@ measurement, not a guess. **Untested — do not quote a number for it.**
 
 ---
 
+## CV assisting the VLM — measured, and it fixed a wrong answer
+
+`lab/assist.py`. Cheap CV decides **where to look**, then the VLM answers a narrow
+question about a large crop instead of a broad question about a small blurry region.
+
+Test case `CMR-0236` (Aurora Ave N & Harrison St), the same frame, three ways:
+
+| method | walkway verdict |
+|---|---|
+| qwen3-vl on the full frame | `clear` — "construction equipment and barriers on the right side" |
+| cosmos-reason1 on the full frame | `clear` — "construction activity visible" |
+| **CV-selected crop → qwen3-vl** | **`on_walking_path: true` — "blocks walking path with barriers and equipment"** |
+
+Both full-frame reads **saw** the construction and still called the walkway clear. The
+crop shows why they were wrong: a drill rig, a skid-steer, stacked pipe, cones, caution
+tape and fencing sitting across the sidewalk. At full-frame scale that is a smear on the
+right edge; at 1129x973 it is unmistakable. The frame is tagged `blocked` in our sample
+set, so the crop-based answer is the correct one and the full-frame answer was a miss.
+
+Cost: 3 crops, **2.3 s each**, on a frame the detector had already processed.
+
+Two region finders, both cheap:
+- **`unmatched`** — detector proposals scoring between the objectness floor (0.10) and the
+  labelling threshold (0.45), with confident people excluded. This is literally the
+  "something is there and COCO has no word for it" set, and it is where sidewalk
+  obstructions live: scaffolding, barricades, cones, sandwich boards, debris, skips.
+- **`static`** — background-subtract against the camera's own recent frames. Changed and
+  then stopped = obstruction; changed and still moving = traffic. Pure cv2 (5.0 is in the
+  container), no GPU, no model. Needs ≥3 history frames from the same camera — we have
+  31k archived frames, so this is free.
+
+It also **gates** VLM spend: no regions found, no VLM call at all. That is the opposite
+of running a 6 s model on all 646 cameras.
+
+Molmo's role becomes clear here too. Its weakness was counting (prompt-fragile: 1 point
+vs 26 on the same frame). Its strength is specifics — served on vLLM it answers "point at
+what is blocking the path" with coordinates rather than a paragraph. Ask it *what and
+where within a crop*, never *how many across a scene*.
+
+## Design decisions taken (grill session, Sat night)
+
+| decision | choice | why |
+|---|---|---|
+| what the camera score *is* | the **live term** of safe-walk's existing `static_risk()`, not a new number | the base is SDOT's collision record — a fact a judge can check. Camera evidence moves it within a cap, as `live.py` already does. A standalone camera score is unfalsifiable and breaks the no-invented-scores rule. |
+| what earns an expensive model | **anomaly-triggered + route on demand** | detector on all 646 every sweep (42 s); promote to VLM on rank-delta vs last sweep, appear-and-stop CV, or confidence collapse. ~20–60 VLM calls/sweep instead of 646 (68 min, stale before it finishes). |
+| who converts evidence → risk | **`vlm` emits facts, `synthesis` owns the weights table, `harness` maps camera→segment** | keeps "the VLM never judges" literally true, puts the weights where teammates can see and tune them, and needs no §6.2 contract change. |
+| how much history the trigger uses | **previous sweep only** | the archive is ~10 h from one day, dominated by night; safe-walk's own `baseline.py` refuses to claim "unusual for this hour" from it. Rank-delta + appear-and-stop need one sweep of memory and are honest on day one. |
+
 ## Honest gaps
 
 - **No ground truth.** Every comparison is model-vs-model plus eyeballed overlays. ~50

@@ -75,7 +75,9 @@ def ask(model, prompt, image, max_tokens, api):
     else:
         body = {"model": model, "prompt": prompt, "images": [b64], "stream": False,
                 "format": "json", "keep_alive": "24h", "think": False,
-                "options": {"temperature": 0, "num_predict": max_tokens}}
+                # ollama otherwise loads qwen3-vl:8b at its full 262144-token context,
+                # which reserves 44.5 GB of KV cache on this box and OOMs the detector
+                "options": {"temperature": 0, "num_predict": max_tokens, "num_ctx": 16384}}
         url = f"{OLLAMA}/api/generate"
     req = urllib.request.Request(url, data=json.dumps(body).encode(),
                                  headers={"Content-Type": "application/json",
@@ -107,10 +109,21 @@ WALKWAY_FLAGS = {"blocked": "blocked_sidewalk", "narrowed": "narrowed_sidewalk",
                  "no_sidewalk": "no_sidewalk"}
 
 
+def as_list(v):
+    """Models disagree on whether a one-item enum list is a list. Cosmos-Reason1 returns
+    a bare string, which silently iterates as characters if you trust the schema."""
+    if v is None: return []
+    if isinstance(v, str): return [x.strip() for x in v.split(",") if x.strip()]
+    if isinstance(v, list): return [x for x in v if isinstance(x, str)]
+    return []
+
+
 def merge(frame, det, ins, secs, model):
     """Detector counts + VLM reading -> one Observation-shaped record."""
+    events = as_list(ins.get("events"))
+    ins["events"] = events
     flags = []
-    for e in (ins.get("events") or []):
+    for e in events:
         if e in EVENT_FLAGS and EVENT_FLAGS[e] not in flags: flags.append(EVENT_FLAGS[e])
     w = WALKWAY_FLAGS.get(ins.get("walkway_status"))
     if w: flags.append(w)

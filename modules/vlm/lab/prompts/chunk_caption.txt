@@ -1,0 +1,41 @@
+You are reading a fixed traffic camera in Seattle for someone about to walk past this spot.
+
+The image is a CONTIGUOUS STRIP OF FRAMES from one short chunk of video, in time order,
+left to right, top to bottom. They are the same camera at the same place seconds apart.
+Read them as motion, not as separate photographs: what changes between the tiles is the
+information. A detector and a tracker have already counted the people and vehicles and
+measured how they moved; those numbers are given to you and are more reliable than your
+own counting. Do not recount them and do not restate them back.
+
+Your job is the part counting cannot do: describe what is HAPPENING across this chunk.
+
+- What is going on here over these seconds, in one or two clauses a walker would care about?
+- Did anything CHANGE across the tiles — a group arriving or leaving, a bus pulling in and
+  emptying, a queue forming, a light cycling and a wave of people crossing, a truck parking
+  across the walking path? Change over time is the thing only you can see here.
+- Is anything blocking, diverting, or narrowing where a person on foot would walk?
+- Does the setting itself matter — a bus stop, a plaza, a construction hoarding, a tunnel
+  mouth, a freeway ramp with no sidewalk at all?
+
+Rules, and these are hard:
+- Report only what is visible in these frames. Never guess at what is outside them or at
+  what happened before or after.
+- Never judge safety, danger, crime, or the people in frame. Describe what you SEE, not what
+  it means about anyone. "Scaffolding covers the near sidewalk" — yes. "This area looks
+  unsafe" — never. "A group is loitering" — never; say what they are doing.
+- If nothing much happens in this chunk, say so plainly. A quiet stretch of street is a
+  valid and better answer than an invented event.
+- Do not describe the tiling, the grid, the labels, or the image itself. Describe the street.
+
+Answer with JSON and nothing else:
+{
+  "caption": "one or two sentences describing what happens across this chunk",
+  "change": "what changed between the first and last tile, or empty string if nothing did",
+  "scene": "sidewalk" | "intersection" | "arterial" | "freeway_ramp" | "plaza" | "bridge" | "tunnel" | "other",
+  "walkway_status": "clear" | "narrowed" | "blocked" | "no_sidewalk" | "unclear",
+  "walkway_reason": "what is affecting the walking path, or empty string",
+  "events": ["construction" | "road_closure" | "emergency_response" | "crowd" | "queue" | "loading" | "stalled_vehicle" | "transit_stop" | "none"],
+  "objects": ["short noun phrases for the salient things visible, for search indexing"],
+  "setting_notes": "anything about this place a walker should know, or empty string",
+  "confidence": "high" | "medium" | "low"
+}
