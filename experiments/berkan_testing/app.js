@@ -546,7 +546,8 @@ let gotoMode = false;             // one-click "take me to" from current locatio
 let pathA = null;                 // [lat, lon] of the first click
 let pathMarkers = [];
 const PATHCAMS = new Set();       // camera_ids highlighted as en-route
-let pathCvToken = 0;              // invalidates a stale en-route CV pass
+const PATHCV = new Map();         // cid -> freshest ok CV result on the corridor
+let pathCvToken = 0;              // invalidates a stale en-route CV watch
 let PATHID = null;                // live path id — keys the LLM summaries
 let SUMS = null;                  // last /api/path/summaries/{id} response
 let sumTimer = null;
@@ -563,7 +564,8 @@ function dropMarker(lat, lon, color) {
 
 function clearPath() {
   pathA = null;
-  pathCvToken++;                  // cancel any in-flight en-route CV pass
+  pathCvToken++;                  // cancel the en-route CV watch
+  PATHCV.clear();
   PATHID = null;
   SUMS = null;
   clearInterval(sumTimer);
@@ -725,45 +727,76 @@ function startSummaryPoll() {
   }, 3000);
 }
 
-/* Single still-frame CV pass over every en-route camera: exactly ONE
-   detlib call per camera (Adi's stack = source of truth), ≤4 in flight.
-   Server-side frame gates keep upstream discipline regardless. */
-async function runPathCvPass(cids) {
+/* Corridor object watch — rides the SAME machinery the pathfind live
+   session uses, instead of forcing inference from the client:
+
+   - the PathLiveSession (auto-started by /api/route) marks every en-route
+     camera hot each ~4 s tick; cvdetect's prefetcher does ALL fetching +
+     CNN inference at its proven rate-gated cadence, and the fresh corridor
+     results ship inside every path version's cv_detections (renderPath
+     ingests those and fills PATHCV).
+   - between version bumps this loop READS the per-frame result cache with
+     plain /api/cv/camera/{cid} — answered in milliseconds, zero upstream
+     requests while a camera's frame gate is shut.
+   - stream-capable cameras are swept ONLY while focused: the endpoint's
+     stream.ensure(evict=true) would churn the STREAM_MAX streamer slots if
+     a whole corridor went through it (the prefetcher itself uses
+     evict=false for exactly this reason). Their boxes still refresh via
+     cv_detections on every version bump, and live while focused.
+
+   The old one-shot forced-detlib still pass lived here; it bypassed every
+   cache and gate, blocked seconds per camera, and was stale the moment it
+   finished. The HQ button keeps that power for the focused camera as a
+   deliberate user action. */
+async function watchPathCv() {
   const token = ++pathCvToken;
-  if (!cids.length) return;
-  // no bulk wipe: already-rendered cars/people stay on the map; each
-  // camera's boxes are upserted as its fresh result lands
   const note = document.createElement("span");
   note.className = "cambar-note";
-  note.textContent = `CV still pass 0/${cids.length}…`;
-  $("cambar").appendChild(note);
-  let people = 0, vehicles = 0, done = 0, unavailable = 0;
   const VEH = ["car", "truck", "bus", "motorbike", "bicycle"];
-  const queue = [...cids];
-  const workers = Array.from({ length: Math.min(4, queue.length) }, async () => {
-    while (queue.length && pathCvToken === token) {
-      const cid = queue.shift();
-      try {
-        const res = await fetch(`${API}/api/cv/camera/${encodeURIComponent(cid)}?backend=detlib&force=true`)
-          .then((r) => r.json());
-        if (pathCvToken !== token) return;
-        if (res.ok) {
-          ingestCvResult(res);
-          for (const d of res.detections || []) {
-            if (d.label === "person") people++;
-            else if (VEH.includes(d.label)) vehicles++;
-          }
-        } else unavailable++;
-      } catch (_) { unavailable++; }
-      done++;
-      note.textContent = `CV still pass ${done}/${cids.length} — ${people} people · ${vehicles} vehicles`;
-    }
-  });
-  await Promise.all(workers);
-  if (pathCvToken !== token) return;
-  note.textContent = `on-path CV (1 still/cam, detlib): ${people} people · ${vehicles} vehicles` +
-    ` across ${cids.length - unavailable}/${cids.length} cam(s)` +
-    (unavailable ? ` · ${unavailable} unavailable` : "");
+  const lastFrame = new Map();          // cid -> frame_ts already drawn
+  while (pathCvToken === token && PATHID) {
+    // corridor membership is re-read every sweep — auto-replaced paths
+    // swap PATHCAMS underneath us and the watch just follows
+    const cids = [...PATHCAMS].filter((cid) => {
+      const rec = byId[cid];
+      return cid === cvFocus || !rec || !rec.has_stream;
+    });
+    let awaiting = 0;
+    const queue = [...cids];
+    const workers = Array.from({ length: Math.min(4, Math.max(queue.length, 1)) }, async () => {
+      while (queue.length && pathCvToken === token) {
+        const cid = queue.shift();
+        try {
+          const res = await fetch(`${API}/api/cv/camera/${encodeURIComponent(cid)}`)
+            .then((r) => r.json());
+          if (pathCvToken !== token) return;
+          if (res.ok) {
+            PATHCV.set(cid, res);
+            if (res.frame_ts !== lastFrame.get(cid)) {   // new frame -> new scene
+              lastFrame.set(cid, res.frame_ts);
+              ingestCvResult(res);
+            }
+          } else awaiting++;
+        } catch (_) { awaiting++; }
+      }
+    });
+    await Promise.all(workers);
+    if (pathCvToken !== token) return;
+    for (const cid of [...PATHCV.keys()])
+      if (!PATHCAMS.has(cid)) PATHCV.delete(cid);        // corridor moved on
+    let people = 0, vehicles = 0;
+    for (const res of PATHCV.values())
+      for (const d of res.detections || []) {
+        if (d.label === "person") people++;
+        else if (VEH.includes(d.label)) vehicles++;
+      }
+    // fillCambar wipes the bar on every re-render; re-attach quietly
+    if (!note.isConnected) $("cambar").appendChild(note);
+    note.textContent = `on-path CV (hot-lane cache): ${people} people · ${vehicles} vehicles` +
+      ` across ${PATHCV.size}/${PATHCAMS.size} cam(s)` +
+      (awaiting ? ` · ${awaiting} awaiting first read` : "");
+    await sleep(3500);   // cache reads only — the prefetcher owns the real work
+  }
 }
 
 function renderPath(r) {
@@ -829,17 +862,22 @@ function renderPath(r) {
     `<span style="color:#FC8181">■${buckets.high}</span> · ` +
     `${r.evidence_summary} · ${r.daylight ? "daylight" : "night"} · ${liveBadge} · click a segment for the factor breakdown</span>`);
 
-  // CV shipped with the path object renders immediately (cached, honest age)
-  Object.values(r.cv_detections || {}).forEach(ingestCvResult);
+  // CV shipped with the path object renders immediately (cached, honest
+  // age) — the live session refreshes these on every version bump, so this
+  // is the corridor's primary object feed, including streamer cameras
+  Object.values(r.cv_detections || {}).forEach((res) => {
+    PATHCV.set(res.camera_id, res);
+    ingestCvResult(res);
+  });
 
-  // one still-frame detlib pass per NEW path (not per live version bump —
-  // the PathLiveSession refreshes corridor CV continuously on its own)
-  if (r.path_id !== lastCvPassPathId) {
-    lastCvPassPathId = r.path_id;
-    runPathCvPass(r.cameras_en_route || []);
+  // one corridor watch per NEW path: continuous hot-lane cache reads
+  // (replaced the old one-shot forced-detlib still pass)
+  if (r.path_id !== lastCvWatchPathId) {
+    lastCvWatchPathId = r.path_id;
+    watchPathCv();
   }
 }
-let lastCvPassPathId = null;
+let lastCvWatchPathId = null;
 
 function setPathMode(on) {
   pathMode = on;

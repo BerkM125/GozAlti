@@ -1,4 +1,4 @@
-# GozAlti
+# AltiGoz
 
 Seattle under the eye: live pedestrian-safety routing built on the city's 646
 public traffic cameras, a VLM on an NVIDIA DGX Spark (GB10), and evidence-first
