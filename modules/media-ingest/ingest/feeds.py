@@ -28,7 +28,7 @@ from urllib.parse import urljoin
 import cv2
 import numpy as np
 
-from . import config, netboot
+from . import activity, config, netboot
 
 _FETCH_SEM = threading.BoundedSemaphore(config.FETCH_CONCURRENCY)
 _LAST_FETCH: dict[str, float] = {}       # camera_id -> monotonic ts of last upstream hit
@@ -110,7 +110,10 @@ def _cached_latest_path(camera_id: str) -> Path | None:
 # ----------------------------------------------------------------- records
 
 def _emit(camera_id: str, node: dict, ts: float, path: Path | None,
-          source: str, stale: bool, kind: str = "frame") -> dict:
+          source: str, stale: bool, kind: str = "frame",
+          blob: bytes | None = None) -> dict:
+    # activity flag rides on frames we already pulled — zero extra upstream
+    activity.update(node, blob, ts, source, stale)
     rec = {
         "camera_id": camera_id,
         "captured_at": _iso(ts),
@@ -180,7 +183,8 @@ def snapshot_frame(node: dict, force: bool = False) -> tuple[bytes | None, dict 
         ts = time.time()
         stale = is_placeholder(r.content)
         path = None if stale else _store(cid, r.content, ts)
-        rec = _emit(cid, node, ts, path, "sdot-snapshot", stale)
+        rec = _emit(cid, node, ts, path, "sdot-snapshot", stale,
+                    blob=None if stale else r.content)
         return (None if stale else r.content), rec
     except Exception:
         p = _cached_latest_path(cid)
@@ -251,7 +255,7 @@ def hls_frame(node: dict) -> tuple[bytes | None, dict | None]:
             return None, None
         blob = buf.tobytes()
         path = _store(cid, blob, ts)
-        rec = _emit(cid, node, ts, path, "sdot-hls", stale=False)
+        rec = _emit(cid, node, ts, path, "sdot-hls", stale=False, blob=blob)
         return blob, rec
     except Exception:
         return None, None

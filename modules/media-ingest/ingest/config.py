@@ -45,6 +45,29 @@ USER_AGENT = os.getenv(
 SWEEP_REST_S = float(os.getenv("SWEEP_REST_S", "10"))          # between full passes
 SWEEP_SCOPE = os.getenv("SWEEP_SCOPE", "streets")              # "streets" | "all"
 VLM_CONCURRENCY = int(os.getenv("VLM_CONCURRENCY", "2"))
+# hot-lane cadence: active/focus cameras every pass, the rest every Nth pass
+SLOW_LANE_EVERY_N = int(os.getenv("SLOW_LANE_EVERY_N", "3"))
+
+# --- activity flag (attention prior — pure pixel mechanics, no model) -----
+ACTIVITY_DOWNSCALE_W = int(os.getenv("ACTIVITY_DOWNSCALE_W", "160"))
+ACTIVITY_DOWNSCALE_H = int(os.getenv("ACTIVITY_DOWNSCALE_H", "120"))
+# MAD thresholds on 0-255 grayscale after median-delta subtraction.
+# Defaults tuned against experiments/surukamera/cache/snapshots pairs —
+# see ingest/activity.py __main__ for the tuning harness.
+ACTIVITY_THRESHOLD_HI = float(os.getenv("ACTIVITY_THRESHOLD_HI", "4.0"))
+ACTIVITY_THRESHOLD_LO = float(os.getenv("ACTIVITY_THRESHOLD_LO", "2.0"))
+# fraction of pixels changed beyond which we assume the camera itself moved
+ACTIVITY_PTZ_FRAC = float(os.getenv("ACTIVITY_PTZ_FRAC", "0.60"))
+ACTIVITY_PTZ_PIXEL_DELTA = float(os.getenv("ACTIVITY_PTZ_PIXEL_DELTA", "25"))
+ACTIVITY_MAX_AGE_S = float(os.getenv("ACTIVITY_MAX_AGE_S", "300"))
+
+# --- temporal breadcrumbs / VLM forward path ------------------------------
+# hot-lane push target (Adi/Dhruv's vlm module) and optional synthesis sink
+VLM_READ_URL = os.getenv("VLM_READ_URL", "")     # e.g. http://localhost:8040/read
+SYNTH_OBS_URL = os.getenv("SYNTH_OBS_URL", "")   # optional forward of Observations
+OBSERVATIONS_DIR = DATA / "observations"
+OBSERVATIONS_DIR.mkdir(parents=True, exist_ok=True)
+PRIOR_OBSERVATIONS_N = int(os.getenv("PRIOR_OBSERVATIONS_N", "3"))
 
 # --- VLM endpoint (OpenAI-compatible; the Spark NIM / vlm module on :8040) -
 VLM_BASE_URL = os.getenv("VLM_BASE_URL", "")                   # e.g. http://localhost:8040/v1

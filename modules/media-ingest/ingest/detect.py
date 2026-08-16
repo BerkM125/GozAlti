@@ -29,7 +29,7 @@ import threading
 import time
 from datetime import datetime, timezone
 
-from . import config, feeds, vlm_client
+from . import activity, config, feeds, vlm_client, vlm_forward
 from .graph import CameraGraph, dest_point
 
 _STATE_LOCK = threading.Lock()
@@ -40,6 +40,7 @@ _status = {
     "running": False, "pass_no": 0, "last_pass_s": None,
     "analyzed": 0, "with_detections": 0, "started_at": None,
     "backend": None, "scope": config.SWEEP_SCOPE,
+    "activity_true": 0, "activity_false": 0,
 }
 _stop_event = threading.Event()
 
@@ -145,27 +146,69 @@ def _scope_ids(g: CameraGraph) -> list[str]:
     return focus + rest
 
 
-async def _sweep_once(g: CameraGraph) -> dict:
+def _lane_ids(g: CameraGraph, pass_no: int) -> list[str]:
+    """Hot-lane cadence: focus + pixel-active + unknown-activity cameras run
+    every pass; explicitly inactive ones every SLOW_LANE_EVERY_N passes.
+    The cheap activity signal is what decides who gets fetch budget."""
     ids = _scope_ids(g)
+    if pass_no % config.SLOW_LANE_EVERY_N == 0:
+        return ids   # periodic full-city pass keeps inactive flags fresh
+    focus = set(_FOCUS)
+    kept = []
+    for cid in ids:
+        if cid in focus:
+            kept.append(cid)
+            continue
+        act = activity.effective_activity(g.nodes[cid])
+        if act is None or act.get("active") is not False:
+            kept.append(cid)   # active, or no fair pair yet — keep sampling
+    return kept
+
+
+async def _sweep_once(g: CameraGraph, pass_no: int) -> dict:
+    ids = _lane_ids(g, pass_no)
     vlm_sem = asyncio.Semaphore(config.VLM_CONCURRENCY)
+    # bound in-flight work so a stop request drains in seconds, not minutes:
+    # without this every camera's fetch is already queued in the executor
+    # before the stop event can be observed
+    flight_sem = asyncio.Semaphore(config.FETCH_CONCURRENCY * 2)
     loop = asyncio.get_running_loop()
     analyzed = with_det = 0
+    vlm_on = vlm_client.available()
 
     async def one(cid: str) -> None:
         nonlocal analyzed, with_det
+        async with flight_sem:
+            await _one_inner(cid)
+
+    async def _one_inner(cid: str) -> None:
+        nonlocal analyzed, with_det
         if _stop_event.is_set():
             return
-        async with vlm_sem:
-            res = await loop.run_in_executor(None, analyze_camera, g, cid)
-        if res and res.get("ok"):
-            analyzed += 1
-            if res["detections"]:
-                with_det += 1
+        if vlm_on:
+            async with vlm_sem:
+                res = await loop.run_in_executor(None, analyze_camera, g, cid)
+            if res and res.get("ok"):
+                analyzed += 1
+                if res["detections"]:
+                    with_det += 1
+        else:
+            # no VLM backend: still fetch the frame so the pixel activity
+            # flag keeps updating — that alone earns the pass
+            await loop.run_in_executor(None, feeds.latest_frame,
+                                       g.nodes[cid], "hls")
+        # hot lane: focus cameras also go to the vlm module with breadcrumbs
+        if cid in _FOCUS and vlm_forward.enabled():
+            await loop.run_in_executor(None, vlm_forward.read_camera, g.nodes[cid])
 
     # feeds.py's semaphore caps upstream at 4 regardless of task fan-out
     await asyncio.gather(*(one(c) for c in ids))
     _persist()
-    return {"analyzed": analyzed, "with_detections": with_det, "cameras": len(ids)}
+    g.save()   # activity flags + last_activity_at land in the on-disk artifact
+    flags = [activity.effective_activity(n) for n in g.nodes.values()]
+    return {"analyzed": analyzed, "with_detections": with_det, "cameras": len(ids),
+            "activity_true": sum(1 for f in flags if f and f.get("active") is True),
+            "activity_false": sum(1 for f in flags if f and f.get("active") is False)}
 
 
 def _persist() -> None:
@@ -182,11 +225,13 @@ async def run_sweep_loop(g: CameraGraph, log=print) -> None:
     try:
         while not _stop_event.is_set():
             t0 = time.monotonic()
-            summary = await _sweep_once(g)
+            summary = await _sweep_once(g, _status["pass_no"] + 1)
             _status.update(pass_no=_status["pass_no"] + 1,
                            last_pass_s=round(time.monotonic() - t0, 1),
                            analyzed=summary["analyzed"],
-                           with_detections=summary["with_detections"])
+                           with_detections=summary["with_detections"],
+                           activity_true=summary["activity_true"],
+                           activity_false=summary["activity_false"])
             log(f"[sweep] pass {_status['pass_no']}: {summary} "
                 f"in {_status['last_pass_s']}s")
             for _ in range(int(config.SWEEP_REST_S * 10)):
