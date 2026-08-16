@@ -448,6 +448,13 @@ button {
   border-radius: var(--r-md);
   display: grid;
   gap: var(--sp-1);
+  transition: top var(--dur-slow) var(--ease);
+}
+
+/* The two-row planner is ~96px tall, so the legend steps down out of its way,
+   exactly like the controls rail on the right. */
+.app.has-trip .legend {
+  top: calc(env(safe-area-inset-top) + 10px + 96px + var(--sp-3));
 }
 
 .legend-title {
@@ -1407,6 +1414,7 @@ button {
   .dock,
   .ctrl,
   .controls,
+  .legend,
   .text-btn,
   .icon-btn,
   .feeds-bar,

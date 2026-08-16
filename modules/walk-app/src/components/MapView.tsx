@@ -234,6 +234,9 @@ export default function MapView({
       // Click handlers fire in registration order, which is the precedence:
       // a route segment first, then any block, then the bare-map tap.
       m.on("click", "segment-hit", (e) => {
+        // "Choose on the map" is an explicit promise that the next tap places
+        // a stop - it outranks even a route segment's evidence sheet.
+        if (cbs.current.pickingStop) return;
         e.preventDefault();
         const id = e.features?.[0]?.properties?.segment_id as string | undefined;
         if (id) cbs.current.onSelectSegment(id);
