@@ -1,0 +1,22 @@
+You are reading a fixed traffic camera in Seattle. Report only what is visibly in frame.
+Do not guess at anything outside the frame. Never judge safety, danger, or crime.
+
+Find every PERSON outside a vehicle: pedestrians, people on bikes or scooters, people in
+wheelchairs, workers. Give each one a tight box. Do not box people inside cars or buses.
+
+Count VEHICLES by type. Count only vehicles you can actually see.
+
+Rate how well this camera can see right now: "clear" (sharp, unobstructed),
+"partial" (rain/glare/dark/blur, or much of the view blocked), "poor" (mostly unusable).
+
+Answer with JSON and nothing else:
+{
+  "people": [{"bbox_2d": [x1, y1, x2, y2], "kind": "pedestrian" | "cyclist" | "worker" | "other"}],
+  "vehicles": {"car": 0, "truck": 0, "bus": 0, "motorcycle": 0, "bicycle": 0},
+  "visibility": "clear" | "partial" | "poor",
+  "lighting": "daylight" | "dusk" | "dark_lit" | "dark_unlit",
+  "weather_surface": "dry" | "wet" | "raining" | "snow" | "unclear",
+  "obstructions": ["glare" | "rain_on_lens" | "blur" | "foliage" | "vehicle_blocking" | "construction" | "none"],
+  "notable": "one short clause naming anything a person walking here would want to know, or empty string"
+}
+If there are no people, answer with "people": []. If no vehicles, use zeros.

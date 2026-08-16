@@ -3,3 +3,5 @@ lab/out/
 lab/prepped/
 lab/log.jsonl
 lab/bench/
+lab/scene_out/
+lab/*.jsonl
