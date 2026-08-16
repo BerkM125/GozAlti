@@ -42,6 +42,20 @@ from ingest import cvdetect, detect, observations, vlm_client   # noqa: E402
 TICK_S = 4.0
 SESSION_TTL_S = 180.0
 VLM_MIN_INTERVAL_S = 60.0
+# Camera evidence outlives the tick that read it (16 Aug, anti-oscillation):
+# rebuilding occupancy from only the CURRENT corridor made evidence follow
+# the path - the shown route was penalized by its own cameras while every
+# alternative rode free at 0, so the optimum flipped between routes every
+# few ticks. Evidence now persists per session for OCC_TTL_S, and a higher
+# people count seen within OCC_HOLD_S outlasts a single empty frame, so
+# frame-to-frame CNN flicker cannot swing the night rule by itself.
+OCC_TTL_S = 120.0
+OCC_HOLD_S = 20.0
+# A challenger route must beat the shown one by this cost margin, under the
+# SAME live evidence, before it may replace it. Without hysteresis two
+# near-equal routes trade the lead on every +/-1-person flicker and the
+# shown path cycles endlessly (observed to v49 on 16 Aug).
+SWITCH_MARGIN = 0.05
 
 _sessions: dict[str, "PathLiveSession"] = {}
 _lock = threading.Lock()
@@ -60,6 +74,10 @@ class PathLiveSession(threading.Thread):
         self.lock = threading.Lock()
         self._vlm_last: dict[str, float] = {}
         self._layers_done: set[str] = set()
+        # cid -> (people, source, monotonic ts); survives corridor changes
+        self._occ_seen: dict[str, tuple[int, str, float]] = {}
+        # a candidate polyline must win two consecutive ticks to replace
+        self._pending_poly: list | None = None
 
     # ------------------------------------------------------------ polling
     def snapshot(self, since: int | None) -> dict:
@@ -85,6 +103,26 @@ class PathLiveSession(threading.Thread):
         with _lock:
             _sessions.pop(self.path["path_id"], None)
 
+    def _route_cost(self, segments, cam_occ, vlm_flagged, night) -> float:
+        """core's cost model over stored segments, with live parts recomputed
+        from the CURRENT evidence - so incumbent and challenger are compared
+        on equal footing (segment-level, same night rule as the search)."""
+        day_scale = 1.0 if night else core.DAY_SCALE
+        total = 0.0
+        for s in segments:
+            cams = [c for c in s.get("cameras", []) if c in cam_occ]
+            live = 0.0
+            if cams:
+                people = max(cam_occ[c][0] for c in cams)
+                occ = 0.0 if people >= 3 else 1.0 if people >= 1 else 0.5
+                live = (W["occupancy"] * occ * day_scale
+                        + W["vlm_flags"]
+                        * (1.0 if any(c in vlm_flagged for c in cams) else 0.0))
+            risk = min(s["base_risk"] + live, 1.0)
+            total += s["length_m"] * (1 + core.RISK_WEIGHT
+                                      * min(risk, core.RISK_CAP))
+        return total
+
     def _corridor_cams(self) -> list[str]:
         # cameras_en_route ships as detail dicts (find_path) — extract ids
         return [c["camera_id"] if isinstance(c, dict) else c
@@ -102,25 +140,38 @@ class PathLiveSession(threading.Thread):
             threading.Thread(target=build_static.build, daemon=True).start()
 
         night = is_night(*self.o)
-        cam_occ: dict[str, tuple[int, str]] = {}   # cid -> (people, source)
         vlm_flagged: set[str] = set()
         cv_results = {}
 
         vlm_on = vlm_client.available()
         cids = [c for c in self._corridor_cams() if c in cg.nodes]
+        # Cameras seen on earlier corridors stay warm until their evidence
+        # ages out, so a route we flipped away from keeps reporting instead
+        # of reverting to the free unknown-=-0 state (the oscillation engine).
+        mono = time.monotonic()
+        keep_warm = [c for c in self._occ_seen
+                     if c in cg.nodes and c not in cids]
+
+        def note_occ(cid: str, people: int, source: str) -> None:
+            # freshest read wins, except a HIGHER count seen within
+            # OCC_HOLD_S outlasts one empty frame (CNN flicker guard)
+            prev = self._occ_seen.get(cid)
+            if prev and prev[0] > people and mono - prev[2] <= OCC_HOLD_S:
+                return
+            self._occ_seen[cid] = (people, source, mono)
 
         # THE RULE OF THIS LOOP: never fetch inline. Mark corridor cameras
         # hot — cvdetect's prefetcher does all fetching+inference at its own
         # proven rate-safe cadence — and READ whatever has landed. The tick
         # itself is read-only assembly + a fast A*.
-        for cid in cids:
+        for cid in cids + keep_warm:
             cvdetect.mark_hot(cg.nodes[cid])
             r = cvdetect.cached_result(cid)
             if r and r.get("ok"):
                 cv_results[cid] = r
                 people = sum(1 for det in r["detections"]
                              if det["label"] == "person")
-                cam_occ[cid] = (people, "opencv")
+                note_occ(cid, people, "opencv")
                 self._layers_done.add("opencv")
 
         for cid in cids:
@@ -134,16 +185,24 @@ class PathLiveSession(threading.Thread):
             if live and live.get("ok"):
                 v_people = sum(1 for det in live.get("detections", [])
                                if det.get("label") == "person")
-                if cid not in cam_occ or v_people > cam_occ[cid][0]:
-                    cam_occ[cid] = (v_people, "vlm")
+                seen = self._occ_seen.get(cid)
+                if seen is None or v_people > seen[0]:
+                    note_occ(cid, v_people, "vlm")
                 self._layers_done.add("vlm")
             for obs in observations.priors(cid)[-1:]:
                 if obs.get("flags"):
                     vlm_flagged.add(cid)
                 pc = obs.get("people_count")
-                if pc is not None and (cid not in cam_occ or pc > cam_occ[cid][0]):
-                    cam_occ[cid] = (pc, "vlm-observation")
+                seen = self._occ_seen.get(cid)
+                if pc is not None and (seen is None or pc > seen[0]):
+                    note_occ(cid, pc, "vlm-observation")
                     self._layers_done.add("vlm")
+
+        # evidence ages out instead of vanishing with the corridor
+        self._occ_seen = {c: v for c, v in self._occ_seen.items()
+                          if mono - v[2] <= OCC_TTL_S}
+        cam_occ: dict[str, tuple[int, str]] = {
+            c: (n, s) for c, (n, s, _t) in self._occ_seen.items()}
 
         # 2. per-edge live overlay from covering cameras (the night rule)
         overlay: dict[int, float] = {}
@@ -184,11 +243,32 @@ class PathLiveSession(threading.Thread):
         occ_moved = occ_now != getattr(self, "_last_occ", None)
         self._last_occ = occ_now
         with self.lock:
-            changed = (new["polyline"] != self.path["polyline"]
-                       or [s["risk"] for s in new["segments"]]
-                       != [s["risk"] for s in self.path["segments"]]
-                       or new["live"]["incorporated"]
-                       != self.path["live"]["incorporated"])
+            poly_changed = new["polyline"] != self.path["polyline"]
+            blocked = False
+            if poly_changed:
+                # Hysteresis: the challenger must beat the shown route by
+                # SWITCH_MARGIN under the SAME evidence, then win two
+                # consecutive ticks. Near-ties and single-tick flickers
+                # (one noisy detection) never move the walker's route.
+                new_cost = self._route_cost(new["segments"], cam_occ,
+                                            vlm_flagged, night)
+                cur_cost = self._route_cost(self.path["segments"], cam_occ,
+                                            vlm_flagged, night)
+                if new_cost >= cur_cost * (1 - SWITCH_MARGIN):
+                    blocked = True
+                    self._pending_poly = None
+                elif new["polyline"] != self._pending_poly:
+                    self._pending_poly = new["polyline"]
+                    blocked = True
+            else:
+                self._pending_poly = None
+            changed = (not blocked) and (
+                poly_changed
+                or (new["polyline"] == self.path["polyline"]
+                    and [s["risk"] for s in new["segments"]]
+                    != [s["risk"] for s in self.path["segments"]])
+                or new["live"]["incorporated"]
+                != self.path["live"]["incorporated"])
             if changed:
                 self.version += 1
                 new["version"] = self.version

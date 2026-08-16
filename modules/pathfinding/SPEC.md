@@ -25,6 +25,17 @@ the A*, and **auto-replaces the path** (per the 16 Aug design decision)
 with a bumped `version`. UI polls ~2 s, re-renders when `version` moves.
 Sessions expire 180 s after the last poll. `DELETE` to stop early.
 
+**Anti-oscillation (16 Aug ~04:00, cleared by Dhruv at the table):** camera
+evidence persists per session (120 s TTL, 20 s hold on the higher people
+count) instead of being rebuilt from only the current corridor - evidence
+following the path was penalizing the shown route while every alternative
+rode free at unknown=0, cycling the geometry endlessly (observed to v49).
+Previously-seen cameras stay marked hot until their evidence ages out. A
+challenger polyline must also beat the incumbent by a 5% cost margin under
+the SAME evidence and win two consecutive ticks before it replaces the
+shown route. Verified: 0 geometry changes over 120 s where the same trip
+previously flipped 6 times.
+
 ## Cost model (verbatim in every response's `risk_basis`)
 
     cost(edge) = length_m × (1 + 3.0 × min(risk, 1.2))
