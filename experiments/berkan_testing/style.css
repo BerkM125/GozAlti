@@ -187,7 +187,31 @@ body.left-collapsed #rail-left { border-right: none; }
 .maplibregl-popup-anchor-bottom .maplibregl-popup-tip { border-top-color: var(--bg2); }
 .maplibregl-popup-anchor-top .maplibregl-popup-tip { border-bottom-color: var(--bg2); }
 
-/* path mode */
+/* path mode — deterministic risk-factor popup widget */
+.risk-pop { min-width: 220px; }
+.risk-pop .rp-head {
+  display: flex; justify-content: space-between; align-items: baseline; gap: 10px;
+  margin-bottom: 5px; padding-bottom: 4px; border-bottom: 1px solid var(--line);
+}
+.risk-pop .rp-bucket { font-size: 9px; letter-spacing: 1px; text-transform: uppercase; }
+.risk-pop .rp-bucket.low { color: #7CE38B; }
+.risk-pop .rp-bucket.medium { color: var(--warn); }
+.risk-pop .rp-bucket.high { color: #FC8181; }
+.risk-pop .rp-row {
+  display: flex; justify-content: space-between; gap: 12px; padding: 1px 0;
+}
+.risk-pop .rp-row b { font-family: var(--mono); flex-shrink: 0; }
+.risk-pop .rp-base b { color: var(--fg); }
+.risk-pop .rp-up b { color: #FC8181; }
+.risk-pop .rp-down b { color: #7CE38B; }
+.risk-pop .rp-zero b { color: var(--dim); }
+.risk-pop .rp-total {
+  display: flex; justify-content: space-between; gap: 12px; margin-top: 4px;
+  padding-top: 4px; border-top: 1px solid var(--line); font-weight: 600;
+}
+.risk-pop .rp-info { margin-top: 4px; color: var(--dim); }
+.risk-pop .rp-note { margin-top: 4px; font-size: 9px; color: var(--dim); letter-spacing: 0.5px; }
+
 .cambar-note {
   font-family: var(--mono); font-size: 11px; color: var(--dim);
   padding: 4px 6px; white-space: nowrap;

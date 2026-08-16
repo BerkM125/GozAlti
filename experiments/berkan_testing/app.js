@@ -245,13 +245,14 @@ map.on("load", () => {
     if (e.originalEvent._camHit) return;
     e.originalEvent._segHit = true;
     const p = e.features[0].properties;
-    new maplibregl.Popup({ closeButton: false, maxWidth: "300px" }).setLngLat(e.lngLat)
-      .setHTML(`<b>${p.name}</b><br>risk ${p.risk} (${p.bucket}) · base ${p.base}<br>${p.facts}`)
+    new maplibregl.Popup({ closeButton: false, maxWidth: "320px" }).setLngLat(e.lngLat)
+      .setHTML(riskPopupHtml(p))
       .addTo(map);
   });
 
   map.on("click", (e) => {
     if (e.originalEvent._camHit) return;
+    if (gotoMode) { gotoClick(e.lngLat.lat, e.lngLat.lng); return; }
     if (pathMode) { pathClick(e.lngLat.lat, e.lngLat.lng); return; }
     if (e.originalEvent._segHit) return;
     clickPoint(e.lngLat.lat, e.lngLat.lng);
@@ -477,10 +478,12 @@ function renderRefuge(scope, res) {
 
 /* ------------------------------------------- evidence-weighted pathfinding */
 
-let pathMode = false;
+let pathMode = false;             // two-click A→B entry; auto-disables on entry
+let gotoMode = false;             // one-click "take me to" from current location
 let pathA = null;                 // [lat, lon] of the first click
 let pathMarkers = [];
 const PATHCAMS = new Set();       // camera_ids highlighted as en-route
+let pathCvToken = 0;              // invalidates a stale en-route CV pass
 
 function dropMarker(lat, lon, color) {
   const el = document.createElement("div");
@@ -493,6 +496,7 @@ function dropMarker(lat, lon, color) {
 
 function clearPath() {
   pathA = null;
+  pathCvToken++;                  // cancel any in-flight en-route CV pass
   pathMarkers.forEach((m) => m.remove());
   pathMarkers = [];
   PATHCAMS.clear();
@@ -514,39 +518,122 @@ async function pathClick(lat, lon) {
   const [alat, alon] = pathA;
   pathA = null;
   dropMarker(lat, lon, "#4FD1C5");             // B
+  setPathMode(false);   // path fully entered → mode disables itself, route stays
+  await requestRoute(alat, alon, lat, lon);
+}
+
+async function requestRoute(alat, alon, blat, blon) {
   $("cambar").innerHTML = `<span class="cambar-note">routing…</span>`;
   let r;
   try {
-    const resp = await fetch(`${API}/api/path?olat=${alat}&olon=${alon}&dlat=${lat}&dlon=${lon}&kind=safer`);
+    const resp = await fetch(`${API}/api/path?olat=${alat}&olon=${alon}&dlat=${blat}&dlon=${blon}&kind=safer`);
     r = await resp.json();
     if (!resp.ok) throw new Error((r.detail && r.detail.error) || "route failed");
   } catch (err) {
-    $("cambar").innerHTML = `<span class="cambar-note">no route: ${err.message} — click to start a new A</span>`;
-    return;
+    $("cambar").innerHTML = `<span class="cambar-note">no route: ${err.message} — press PATH or TAKE ME TO to retry</span>`;
+    return false;
   }
   renderPath(r);
+  return true;
+}
+
+/* Deterministic factor breakdown for one segment — mirrors RISK_FORMULA in
+   modules/media-ingest/ingest/pathrisk.py exactly (every delta below is the
+   server's own term, applied to the server's own evidence; nothing invented). */
+function riskFactors(s) {
+  const e = s.evidence;
+  const rows = [{ label: "base structural risk (harness A* weights)", delta: s.base_risk, base: true }];
+  if (e.night_unlit_penalty) rows.push({ label: "night + street not tagged lit", delta: 0.15 });
+  else if (!e.daylight) rows.push({ label: `night, but street tagged lit: ${e.lit}`, delta: 0 });
+  const nCams = e.cameras_80m.length;
+  if (!nCams) rows.push({ label: "no camera within 80 m", delta: 0.10 });
+  else {
+    rows.push({ label: `covered by ${nCams} camera(s) ≤80 m`, delta: -0.05 });
+    if (e.cameras_active > 0)
+      rows.push({ label: `${e.cameras_active} of them pixel-active right now`, delta: -0.05 });
+  }
+  const open = e.open_refuges_120m;
+  if (open) {
+    const nm = e.nearest_open ? ` — nearest: ${e.nearest_open.name}` : "";
+    rows.push({ label: `${open} business(es) open now ≤120 m${nm}`, delta: -(0.10 * Math.min(open, 3) / 3) });
+  } else rows.push({ label: "no business open within 120 m", delta: 0.10 });
+  const info = [];
+  if (e.last_person_min != null) info.push(`last person seen on-camera ${e.last_person_min} min ago`);
+  if (e.sidewalk) info.push(`sidewalk: ${e.sidewalk}`);
+  if (e.alley_dist_m != null) info.push(`nearest alley: ${e.alley_dist_m} m`);
+  return { rows, info };
+}
+
+function riskPopupHtml(p) {
+  // p comes from the geojson feature; nested objects arrive JSON-stringified
+  const rows = JSON.parse(p.factors || "[]");
+  const info = JSON.parse(p.info || "[]");
+  const fmt = (d) => (d > 0 ? `+${d.toFixed(2)}` : d < 0 ? `−${Math.abs(d).toFixed(2)}` : "±0");
+  const cls = (r) => (r.base ? "rp-base" : r.delta > 0 ? "rp-up" : r.delta < 0 ? "rp-down" : "rp-zero");
+  return `<div class="risk-pop">
+    <div class="rp-head"><b>${p.name}</b><span class="rp-bucket ${p.bucket}">${p.bucket}</span></div>
+    ${rows.map((r) => `<div class="rp-row ${cls(r)}"><span>${r.label}</span><b>${fmt(r.delta)}</b></div>`).join("")}
+    <div class="rp-total"><span>live risk (clamped 0–1)</span><b>${p.risk}</b></div>
+    ${info.length ? `<div class="rp-info">${info.join(" · ")}</div>` : ""}
+    <div class="rp-note">deterministic evidence combination — not a safety verdict</div>
+  </div>`;
+}
+
+/* Single still-frame CV pass over every en-route camera: exactly ONE
+   detlib call per camera (Adi's stack = source of truth), ≤4 in flight.
+   Server-side frame gates keep upstream discipline regardless. */
+async function runPathCvPass(cids) {
+  const token = ++pathCvToken;
+  if (!cids.length) return;
+  Object.keys(CVOBJ).forEach((k) => delete CVOBJ[k]);
+  renderCvObjects();
+  const note = document.createElement("span");
+  note.className = "cambar-note";
+  note.textContent = `CV still pass 0/${cids.length}…`;
+  $("cambar").appendChild(note);
+  let people = 0, vehicles = 0, done = 0, unavailable = 0;
+  const VEH = ["car", "truck", "bus", "motorbike", "bicycle"];
+  const queue = [...cids];
+  const workers = Array.from({ length: Math.min(4, queue.length) }, async () => {
+    while (queue.length && pathCvToken === token) {
+      const cid = queue.shift();
+      try {
+        const res = await fetch(`${API}/api/cv/camera/${encodeURIComponent(cid)}?backend=detlib&force=true`)
+          .then((r) => r.json());
+        if (pathCvToken !== token) return;
+        if (res.ok) {
+          ingestCvResult(res);
+          for (const d of res.detections || []) {
+            if (d.label === "person") people++;
+            else if (VEH.includes(d.label)) vehicles++;
+          }
+        } else unavailable++;
+      } catch (_) { unavailable++; }
+      done++;
+      note.textContent = `CV still pass ${done}/${cids.length} — ${people} people · ${vehicles} vehicles`;
+    }
+  });
+  await Promise.all(workers);
+  if (pathCvToken !== token) return;
+  note.textContent = `on-path CV (1 still/cam, detlib): ${people} people · ${vehicles} vehicles` +
+    ` across ${cids.length - unavailable}/${cids.length} cam(s)` +
+    (unavailable ? ` · ${unavailable} unavailable` : "");
 }
 
 function renderPath(r) {
   // segments colored by live risk; shortest-kind (no segments) draws neutral
   const segFeats = (r.segments && r.segments.length)
     ? r.segments.map((s) => {
-        const e = s.evidence;
-        const facts = [
-          `${e.cameras_80m.length} camera(s), ${e.cameras_active} active`,
-          e.last_person_min != null ? `person seen ${e.last_person_min} min ago` : null,
-          `${e.open_refuges_120m} open place(s) ≤120 m`,
-          e.night_unlit_penalty ? "night, not tagged lit" : (e.lit === "yes" ? "lit street" : null),
-          e.sidewalk ? `sidewalk: ${e.sidewalk}` : null,
-        ].filter(Boolean).join(" · ");
+        const { rows, info } = riskFactors(s);
         return {
           type: "Feature",
           properties: { bucket: s.risk_bucket, name: s.name, risk: s.live_risk,
-                        base: s.base_risk, facts },
+                        base: s.base_risk, factors: JSON.stringify(rows),
+                        info: JSON.stringify(info) },
           geometry: s.geometry,
         };
       })
-    : [{ type: "Feature", properties: { bucket: "", name: "route", risk: "", base: "", facts: "" },
+    : [{ type: "Feature", properties: { bucket: "", name: "route", risk: "", base: "", factors: "[]", info: "[]" },
          geometry: { type: "LineString", coordinates: r.polyline.map(([la, lo]) => [lo, la]) } }];
   map.getSource("path-segs").setData({ type: "FeatureCollection", features: segFeats });
 
@@ -581,19 +668,59 @@ function renderPath(r) {
     `<span style="color:#7CE38B">■${buckets.low}</span> ` +
     `<span style="color:#F6AD55">■${buckets.medium}</span> ` +
     `<span style="color:#FC8181">■${buckets.high}</span> · ` +
-    `${r.evidence_summary} · ${r.daylight ? "daylight" : "night"}</span>`);
+    `${r.evidence_summary} · ${r.daylight ? "daylight" : "night"} · click a segment for the factor breakdown</span>`);
+
+  // one still-frame detlib pass over every camera on the plotted path
+  runPathCvPass(r.cameras_en_route || []);
 }
 
-$("btn-path").onclick = () => {
-  pathMode = !pathMode;
-  $("btn-path").classList.toggle("on", pathMode);
-  if (!pathMode) clearPath();
-  else $("cambar").innerHTML = `<span class="cambar-note">PATH mode — click your start point (A)</span>`;
+function setPathMode(on) {
+  pathMode = on;
+  $("btn-path").classList.toggle("on", on);
+  if (on) {
+    setGotoMode(false);
+    clearPath();       // entering the mode starts a fresh path
+    $("cambar").innerHTML = `<span class="cambar-note">PATH mode — click your start point (A)</span>`;
+  }
+  // turning off (auto or manual) keeps whatever route is drawn
+}
+
+function setGotoMode(on) {
+  gotoMode = on;
+  $("btn-goto").classList.toggle("on", on);
+  if (on) setPathMode(false);
+}
+
+$("btn-path").onclick = () => setPathMode(!pathMode);
+
+$("btn-goto").onclick = async () => {
+  if (gotoMode) { setGotoMode(false); return; }
+  setGotoMode(true);
+  if (!lastLoc) {
+    $("cambar").innerHTML = `<span class="cambar-note">TAKE ME TO — enabling your location…</span>`;
+    await enableLocation();
+  }
+  if (gotoMode)
+    $("cambar").innerHTML = `<span class="cambar-note">TAKE ME TO — click your destination</span>`;
 };
+
+async function gotoClick(lat, lon) {
+  setGotoMode(false);  // destination entered → mode disables itself
+  if (!lastLoc) await enableLocation();    // belt-and-braces; btn already did this
+  if (!lastLoc) {
+    $("cambar").innerHTML = `<span class="cambar-note">could not get a location — press LOC, then retry</span>`;
+    return;
+  }
+  clearPath();
+  dropMarker(lastLoc[0], lastLoc[1], "#F6AD55");   // A = you
+  dropMarker(lat, lon, "#4FD1C5");                 // B = destination
+  await requestRoute(lastLoc[0], lastLoc[1], lat, lon);
+}
 
 /* --------------------------------------------- my location -> coverage */
 
 let locMarker = null;
+let lastLoc = null;               // [lat, lon] once location is enabled
 
 function convexHull(pts) {
   // Andrew monotone chain on [lon, lat]; fine at city scale
@@ -614,6 +741,7 @@ function convexHull(pts) {
 }
 
 async function showCoverage(lat, lon) {
+  lastLoc = [lat, lon];
   map.flyTo({ center: [lon, lat], zoom: 15.5 });
   if (locMarker) locMarker.remove();
   const el = document.createElement("div");
@@ -636,21 +764,32 @@ async function showCoverage(lat, lon) {
   if (cams.length) selectCamera(cams[0].camera_id);
 }
 
-$("btn-loc").onclick = () => {
-  if (!navigator.geolocation) { alert("no geolocation in this browser"); return; }
-  $("btn-loc").classList.add("on");
-  navigator.geolocation.getCurrentPosition(
-    (pos) => showCoverage(pos.coords.latitude, pos.coords.longitude),
-    (err) => {
-      $("btn-loc").classList.remove("on");
-      // geolocation needs localhost or https; fall back to map center for testing
-      console.warn("geolocation failed:", err.message, "— using map center");
+function enableLocation() {
+  // resolves once lastLoc is set (geolocation, or map-center fallback for
+  // plain-HTTP testing where the browser blocks geolocation)
+  return new Promise((resolve) => {
+    if (!navigator.geolocation) {
       const c = map.getCenter();
       showCoverage(c.lat, c.lng);
-    },
-    { enableHighAccuracy: true, timeout: 8000 },
-  );
-};
+      resolve(lastLoc);
+      return;
+    }
+    $("btn-loc").classList.add("on");
+    navigator.geolocation.getCurrentPosition(
+      (pos) => { showCoverage(pos.coords.latitude, pos.coords.longitude); resolve(lastLoc); },
+      (err) => {
+        // geolocation needs localhost or https; fall back to map center for testing
+        console.warn("geolocation failed:", err.message, "— using map center");
+        const c = map.getCenter();
+        showCoverage(c.lat, c.lng);
+        resolve(lastLoc);
+      },
+      { enableHighAccuracy: true, timeout: 8000 },
+    );
+  });
+}
+
+$("btn-loc").onclick = () => { enableLocation(); };
 
 /* ---------------------------------------------------------- rail toggles */
 
