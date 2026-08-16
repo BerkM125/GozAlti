@@ -1,0 +1,37 @@
+CAMERA CMR-0303
+CLIP: 60 s, sampled at 4.0 fps (240 frames analysed).
+
+MEASURED OVER THE WHOLE CLIP (detector and tracker, not estimates):
+- 95 unique people tracked through the clip.
+- People visible per frame: peak 19 at 0:24, mean 12.56, minimum 6.
+- Vehicles per frame: peak 13, mean 3.9.
+- Time on screen per person: median 6.75 s, longest 42.5 s.
+- Movement: 16 standing, 45 slow_moving, 34 walking.
+- Directions of travel across the frame: 26 up-left, 19 stationary, 12 down-right, 10 up-frame, 8 up-right, 7 down-frame, 5 right, 5 left, 3 down-left.
+
+CHUNK CAPTIONS, IN TIME ORDER:
+[0:00-0:10] peak 15 people, 13 vehicles. Pedestrians move across the sidewalk near the intersection, with a few crossing the street at the crosswalk while others walk along the curb; a bus is visible on the road.
+    change across the chunk: More pedestrians appear on the right sidewalk in the last tile compared to the first, including a group near the bus stop.
+    scene intersection; walking path clear
+    setting: A bus stop with a sign is visible on the right sidewalk; the street has bike lanes and a bus-only lane.
+[0:10-0:20] peak 18 people, 9 vehicles. Pedestrians move across the sidewalk near the bus stop and crosswalks; a few people walk toward the camera while others move away.
+    change across the chunk: A person in a yellow jacket walks from the right sidewalk toward the camera in the top-right tile, and a person in a white shirt appears walking toward the camera in the bottom-right tile.
+    scene intersection; walking path clear
+    events: transit_stop
+    setting: A bus stop with a 'BUSES ONLY' sign is visible on the right sidewalk; the street has bike lanes marked 'ONLY BNS'.
+[0:20-0:30] peak 19 people, 9 vehicles. Pedestrians move across the sidewalk near the bus stop while a few people walk along the street; the traffic light cycles through green and red phases.
+    change across the chunk: A group of pedestrians moves from the right sidewalk to the left sidewalk near the bus stop, and a person walks across the street from the left to the right.
+    scene intersection; walking path clear
+    events: transit_stop
+    setting: A bus stop with a 'BUSES ONLY' sign and a bike lane on the street.
+[0:30-0:40] peak 17 people, 3 vehicles. Pedestrians move slowly across the intersection and sidewalk; a few people walk toward the camera while others remain stationary near the bus stop.
+    change across the chunk: A small group of pedestrians appears on the left sidewalk in the final frame, and a person walks from the right sidewalk toward the intersection.
+    scene intersection; walking path clear
+    setting: A bus stop with a 'BUSES ONLY' sign is visible on the right sidewalk; the street has bike lanes and a bus-only zone.
+[0:40-0:50] peak 18 people, 6 vehicles. A few pedestrians walk along the sidewalk while vehicles move through the intersection; a red car enters the frame and stops near the crosswalk.
+    change across the chunk: A red car appears in the lower right tile and stops near the crosswalk, while a few pedestrians continue walking.
+    scene intersection; walking path clear
+    setting: This is a typical urban intersection with a bus-only lane and bike lanes; the sidewalk is clear and well-lit.
+[0:50-1:00] peak 18 people, 9 vehicles. A few cars move through the intersection while pedestrians walk along the sidewalks; no significant changes occur in vehicle or pedestrian flow.
+    scene intersection; walking path clear
+    setting: Standard urban intersection with marked bike lanes and bus-only lanes; no construction or obstructions visible.

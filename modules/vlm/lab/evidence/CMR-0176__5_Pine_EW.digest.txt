@@ -1,0 +1,40 @@
+CAMERA CMR-0176
+CLIP: 60 s, sampled at 4.0 fps (240 frames analysed).
+
+MEASURED OVER THE WHOLE CLIP (detector and tracker, not estimates):
+- 64 unique people tracked through the clip.
+- People visible per frame: peak 11 at 0:56, mean 3.73, minimum 0.
+- Vehicles per frame: peak 16, mean 9.17.
+- Time on screen per person: median 2.25 s, longest 28.0 s.
+- Movement: 12 standing, 21 walking, 31 slow_moving.
+- Directions of travel across the frame: 17 down-frame, 11 stationary, 11 up-left, 10 down-right, 8 up-frame, 3 right, 2 left, 1 down-left, 1 up-right.
+
+CHUNK CAPTIONS, IN TIME ORDER:
+[0:00-0:10] peak 8 people, 10 vehicles. A few pedestrians walk along the sidewalk while cars move through the intersection; a black SUV turns left and a red car enters the frame.
+    change across the chunk: A red car appears in the lower right corner of the last frame, and a black SUV moves from the left to the right side of the frame.
+    scene intersection; walking path clear
+    setting: A nighttime urban intersection with streetlights, decorated trees, and a sidewalk on the left side of the frame.
+[0:10-0:20] peak 7 people, 13 vehicles. Pedestrians walk along the sidewalk while cars move through the intersection; a few vehicles pass through the crosswalk.
+    change across the chunk: A red car enters the frame from the right and exits the left, while a black SUV moves from the center to the right.
+    scene intersection; walking path clear
+    setting: A well-lit urban intersection with decorative tree lights and a sidewalk on the left.
+[0:20-0:30] peak 6 people, 10 vehicles. A white SUV and a dark sedan move through the intersection while a bus arrives on the right; pedestrians walk along the sidewalk near the trees.
+    change across the chunk: A blue bus enters the frame on the right and a white SUV replaces the dark sedan in the intersection.
+    scene intersection; walking path clear
+    events: transit_stop
+    setting: Nighttime urban intersection with decorative tree lights and a bus stop on the right.
+[0:30-0:40] peak 8 people, 15 vehicles. A bus and several cars move through the intersection while pedestrians walk along the sidewalk; the bus departs the frame after the first tile.
+    change across the chunk: The bus moves from the right side of the frame to the left and exits the frame by the last tile.
+    scene intersection; walking path clear
+    events: transit_stop
+    setting: A nighttime intersection with streetlights and decorated trees; the bus stop is visible on the right.
+[0:40-0:50] peak 10 people, 16 vehicles. A bus and several cars move through the intersection while pedestrians walk along the sidewalk; a few people cross the street near the bus stop.
+    change across the chunk: The bus moves forward and exits the frame, while a red car enters from the right and stops near the bus stop.
+    scene intersection; walking path clear
+    events: transit_stop
+    setting: A busy urban intersection with a bus stop on the right side, featuring decorative lights on trees and street lamps.
+[0:50-1:00] peak 11 people, 16 vehicles. Pedestrians walk along the sidewalk near the bus stop while vehicles move through the intersection; a bus departs and a red car pulls away.
+    change across the chunk: A bus departs the stop and a red car moves away from the intersection, while pedestrians continue walking.
+    scene intersection; walking path clear
+    events: transit_stop
+    setting: A busy urban intersection with a bus stop on the sidewalk, streetlights, and decorative lights on trees.

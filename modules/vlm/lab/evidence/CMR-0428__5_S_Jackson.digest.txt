@@ -1,0 +1,39 @@
+CAMERA CMR-0428
+CLIP: 60 s, sampled at 4.0 fps (240 frames analysed).
+
+MEASURED OVER THE WHOLE CLIP (detector and tracker, not estimates):
+- 154 unique people tracked through the clip.
+- People visible per frame: peak 25 at 0:24, mean 16.83, minimum 10.
+- Vehicles per frame: peak 7, mean 3.21.
+- Time on screen per person: median 5.5 s, longest 56.75 s.
+- Movement: 59 slow_moving, 67 walking, 28 standing.
+- Directions of travel across the frame: 35 stationary, 27 right, 19 up-right, 15 down-right, 14 up-frame, 13 down-frame, 12 down-left, 10 left, 9 up-left.
+
+CHUNK CAPTIONS, IN TIME ORDER:
+[0:00-0:10] peak 23 people, 5 vehicles. Pedestrians cross the intersection at a steady pace while vehicles move through the crosswalks; a few people gather near the bus stop.
+    change across the chunk: A silver SUV enters the frame from the right and stops near the crosswalk, while a group of pedestrians moves from the left sidewalk toward the intersection.
+    scene intersection; walking path clear
+    events: transit_stop
+    setting: A busy urban intersection with a bus stop on the left side, multiple crosswalks, and traffic lights controlling vehicle flow.
+[0:10-0:20] peak 24 people, 5 vehicles. Pedestrians cross the intersection at a steady pace while vehicles move through the crosswalks; a few people gather near the bus stop.
+    change across the chunk: A white car enters the intersection from the right and a red car exits the crosswalk on the left.
+    scene intersection; walking path clear
+    events: crowd, transit_stop
+    setting: A busy urban intersection with a bus stop on the left side, multiple crosswalks, and traffic lights.
+[0:20-0:30] peak 25 people, 5 vehicles. Pedestrians cross the intersection in small groups while vehicles move through the crosswalks; a few people gather near the bus stop.
+    change across the chunk: A larger group of pedestrians appears near the bus stop in the last tile, and a bus is visible in the intersection.
+    scene intersection; walking path clear
+    events: transit_stop
+    setting: A busy urban intersection with a bus stop on the corner, multiple crosswalks, and traffic lights.
+[0:30-0:40] peak 24 people, 7 vehicles. Pedestrians cross the intersection in small groups while vehicles move through the crosswalks; a white SUV and blue car pass through the intersection.
+    change across the chunk: A white SUV enters the intersection from the right and a blue car moves through the crosswalk from the bottom-left to the center.
+    scene intersection; walking path clear
+    setting: A busy urban intersection with multiple crosswalks and traffic lights; no sidewalk obstruction visible.
+[0:40-0:50] peak 25 people, 6 vehicles. Pedestrians cross the intersection in small groups while vehicles move through the crosswalks; a white SUV turns right and a motorcycle enters the frame.
+    change across the chunk: A motorcycle appears in the lower right tile, and a white SUV moves from the crosswalk into the right lane.
+    scene intersection; walking path clear
+    setting: Standard city intersection with traffic lights and crosswalks; no visible construction or barriers.
+[0:50-1:00] peak 21 people, 7 vehicles. A few pedestrians cross the intersection while vehicles move through the crosswalks; a white SUV turns left and a red car drives through the intersection.
+    change across the chunk: A white SUV turns left in the top-left tile and exits the frame by the top-right tile, while a red car enters the frame from the bottom-left tile and moves right.
+    scene intersection; walking path clear
+    setting: A busy urban intersection with a transit stop on the right, marked by a bus shelter and multiple storefronts.
