@@ -549,7 +549,21 @@ def run_clip(src, a, viewer_data):
 
 
 def bench_detectors(src, a):
-    """Run every person-capable arch over the same sampled frames. Same protocol each."""
+    """Run every person-capable arch over the same frames, with the ORDER counterbalanced.
+
+    The first cut of this bench ran each config once in a fixed order and produced
+    nonsense: maskrcnn "faster" than fasterrcnn, and the same keypointrcnn config
+    123.7 ms on a 720x480 clip but 65.9 ms on a 1080p one. Every config was simply
+    faster than the one before it, all the way down the run — the GB10 ramps clocks
+    over the first tens of seconds of GPU work, so a fixed-order sweep measures
+    position in the run and not the model. Fix: one long global warmup, then sweep
+    the config list forwards and backwards and keep the min per config, which cancels
+    a monotonic drift instead of baking it in.
+
+    Recall is reported next to latency because latency alone picks the wrong model.
+    `people_small` counts detections under 5% of frame height — the distant
+    pedestrians that everything misses at the default resize.
+    """
     work = HERE / a.out / (Path(src).stem + "__bench")
     work.mkdir(parents=True, exist_ok=True)
     frames, meta, _ = ingest(src, work, a.fps, a.seconds)
@@ -558,16 +572,25 @@ def bench_detectors(src, a):
           f"{meta['width']}x{meta['height']}, source {meta['src_fps']} fps")
     import torch
     dev = a.device if torch.cuda.is_available() else "cpu"
-    rows = []
+
     configs = [(arch, ms) for arch in a.bench_archs for ms in a.bench_min_sizes]
-    for arch, ms in configs:
-        det = detlib.load(arch, a.person_thresh, dev, None if ms == 800 else ms)
-        t, W, H = detlib.read_tensor(det, frames[0])
-        for _ in range(3):
-            detlib.infer(det, t)                      # warm this exact config
-        best = None
-        for rep in range(2):                          # min-of-2, same as the stills bench
-            times, ppl, veh = [], 0, 0
+    dets = {c: detlib.load(c[0], a.person_thresh, dev,
+                           None if c[1] == 800 else c[1]) for c in configs}
+
+    # global warmup: get the GPU to its steady clock before anything is timed
+    warm_t, _, _ = detlib.read_tensor(dets[configs[0]], frames[0])
+    t0 = time.perf_counter()
+    n = 0
+    while time.perf_counter() - t0 < a.bench_warmup_s:
+        detlib.infer(dets[configs[0]], warm_t)
+        n += 1
+    print(f"  warmup: {n} passes in {a.bench_warmup_s}s before timing")
+
+    def sweep(order):
+        res = {}
+        for c in order:
+            det = dets[c]
+            times, ppl, small, conf, veh = [], 0, 0, [], 0
             for f in frames:
                 tt, W, H = detlib.read_tensor(det, f)
                 out, msec = detlib.infer(det, tt)
@@ -575,26 +598,43 @@ def bench_detectors(src, a):
                 pe, ve = detlib.parse(det, out, W, H, a.person_thresh, a.vehicle_thresh,
                                       want_masks=False)
                 ppl += len(pe)
+                small += sum(1 for x in pe if x.get("h", 1) < 0.05)
+                conf += [x["conf"] for x in pe]
                 veh += sum(ve.values())
-            mean = sum(times) / len(times)
-            if best is None or mean < best["ms_mean"]:
-                best = {"ms_mean": round(mean, 1),
-                        "ms_median": round(sorted(times)[len(times) // 2], 1),
-                        "people_total": ppl, "vehicle_total": veh}
-        row = {"arch": arch, "min_size": det.min_size, "frames": len(frames),
-               "people_only": det.people_only, "masks": det.has_masks,
-               "keypoints": det.has_keypoints,
-               "fps": round(1000.0 / best["ms_mean"], 2),
-               "realtime_at_source": (1000.0 / best["ms_mean"]) >= meta["src_fps"], **best}
-        rows.append(row)
-        print(f"  {arch:13} min_size={det.min_size:5} {best['ms_mean']:6.1f} ms  "
-              f"{row['fps']:6.2f} fps  people {best['people_total']:5}  "
-              f"vehicles {best['vehicle_total']:5}  realtime@{meta['src_fps']}fps: "
-              f"{'yes' if row['realtime_at_source'] else 'no'}")
-        del det
-        torch.cuda.empty_cache()
-    out = {"clip": Path(src).name, "video": meta, "frames": len(frames), "rows": rows}
+            res[c] = {"ms_mean": round(sum(times) / len(times), 1),
+                      "ms_median": round(sorted(times)[len(times) // 2], 1),
+                      "people_total": ppl, "people_small": small,
+                      "mean_conf": round(sum(conf) / len(conf), 3) if conf else None,
+                      "vehicle_total": veh}
+        return res
+
+    fwd = sweep(configs)
+    rev = sweep(list(reversed(configs)))
+    rows = []
+    for c in configs:
+        a1, a2 = fwd[c], rev[c]
+        best = a1 if a1["ms_mean"] <= a2["ms_mean"] else a2
+        det = dets[c]
+        rows.append({"arch": c[0], "min_size": det.min_size, "frames": len(frames),
+                     "people_only": det.people_only, "masks": det.has_masks,
+                     "keypoints": det.has_keypoints,
+                     "ms_forward": a1["ms_mean"], "ms_reverse": a2["ms_mean"],
+                     "fps": round(1000.0 / best["ms_mean"], 2),
+                     "realtime_at_source": (1000.0 / best["ms_mean"]) >= meta["src_fps"],
+                     **best})
+    print(f"  {'arch':13} {'min_size':>8} {'ms':>7} {'fps':>7} {'people':>7} "
+          f"{'small':>6} {'conf':>6} {'veh':>6}   fwd/rev ms")
+    for r in rows:
+        print(f"  {r['arch']:13} {r['min_size']:8} {r['ms_mean']:7.1f} {r['fps']:7.2f} "
+              f"{r['people_total']:7} {r['people_small']:6} "
+              f"{(r['mean_conf'] if r['mean_conf'] is not None else 0):6.3f} "
+              f"{r['vehicle_total']:6}   {r['ms_forward']:.0f}/{r['ms_reverse']:.0f}")
+    out = {"clip": Path(src).name, "video": meta, "frames": len(frames),
+           "warmup_s": a.bench_warmup_s, "rows": rows}
     (work / "bench.json").write_text(json.dumps(out, indent=1))
+    for d in dets.values():
+        del d
+    torch.cuda.empty_cache()
     return out
 
 
@@ -626,6 +666,9 @@ def main():
     ap.add_argument("--device", default="cuda")
     ap.add_argument("--bench", action="store_true", help="detector bench instead of the pipeline")
     ap.add_argument("--bench-frames", type=int, default=24)
+    ap.add_argument("--bench-warmup-s", type=float, default=20.0,
+                    help="seconds of untimed GPU work before benching; the GB10 "
+                         "ramps clocks and a short warmup measures the ramp")
     ap.add_argument("--bench-archs", default="fasterrcnn,maskrcnn,keypointrcnn")
     ap.add_argument("--bench-min-sizes", default="800")
     a = ap.parse_args()
