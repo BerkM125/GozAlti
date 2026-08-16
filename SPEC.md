@@ -129,13 +129,14 @@ Spike results (full write-up circulated 16 Aug; verified against the repo):
   says "No ML" and that stands. No LLM routing (slow, non-reproducible,
   unverifiable); no new engine (Valhalla/GraphHopper/pgRouting are data-pipeline
   rewrites, not spikes). The differentiator is the WEIGHTS, not the router.
-- **Spike 4 (which router ships): DECISION AT THE TABLE, 15 min.** Three routers
-  exist (safe-walk experiment, harness, walk-app). harness's
-  `_jitter()`-derived collision/confidence numbers violate the no-fabricated-data
-  rule and must not reach the demo (media-ingest's `/api/path` already strips
-  them when forwarding). Recommendation on the table: one router under
-  `modules/pathfinding`, weighted by real SDOT + live camera evidence.
-  Owner sign-off needed from Ioli (harness) and Dhruv (walk-app).
+- **Spike 4 (which router ships): the consolidated router LANDED 16 Aug
+  ~01:45** — `modules/pathfinding`, served at `GET :8030/api/route` (+
+  `/api/route/live/{path_id}` for versioned auto-replacing live updates).
+  Real SDOT collisions (9.7k records) + camera coverage + OSM structure +
+  osint hook in the static weights; live OpenCV/VLM occupancy + flags enter
+  the A* natively via the session loop. No `_jitter()` anywhere in it.
+  Remaining table item: Ioli (harness) + Dhruv (walk-app) mark their routers
+  deprecated-for-demo and demo-ui consumes `/api/route`.
 - **Spike 5 (synthesis is empty): CRITICAL PATH.** It owns :8020 and the
   flags→weight table (design already written in `modules/vlm/CAPABILITIES.md`;
   port capped-nudge logic from `experiments/safe-walk/live.py`). Unblocks

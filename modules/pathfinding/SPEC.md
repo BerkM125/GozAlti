@@ -1,65 +1,106 @@
-# modules/pathfinding — the ONE router that ships
+# modules/pathfinding — the ONE router that ships (AS BUILT, Aug 16 ~01:45)
 
-**Owner:** Berkan · **Effort budget:** 3 h · Aug 16 sprint
+**Owner:** Berkan · Consolidates the repo's three routers per god SPEC §5.1
+spike 4. Serves through `:8030` (media-ingest mounts it). The experimental
+console demonstrates the full contract; `modules/demo-ui` ports from there.
 
-Read `../../SPEC.md` §5.1 first (spike dispositions). This module is the single
-source of truth for pathfinding. When it ships, the other routers are
-deprecated-for-demo (their owners mark them so; nothing is deleted).
+## Architecture — one-and-done + live updater (two components, by design)
 
-## Mission
+**1. `pathfind.find_path()` / `GET :8030/api/route?olat&olon&dlat&dlon&kind`**
+The one-and-done function: deterministic A* over harness's walk graph with
+ALL static layers in the edge weights, plus **cached** OpenCV detections
+shipped alongside. It NEVER fetches live data and returns in ~50 ms. The
+response carries `live: {incorporated: false, basis:
+"deterministic + cached-opencv", layers_pending: [...]}` — the UI must show
+that flag until live layers land.
 
-One tool, one entrypoint: **(live location | point A) → point B**, deterministic
-A*, with **every weight, heuristic, and piece of computed data we have**
-participating natively in the search — not painted on afterwards.
+**2. `PathLiveSession` / `GET :8030/api/route/live/{path_id}?since=N`**
+The separate live component (auto-started by `/api/route`, `live=false` to
+opt out). Every ~4 s it marks corridor cameras hot (media-ingest's CV
+prefetcher does ALL fetching at its proven rate-gated cadence — the session
+loop itself never fetches inline), reads fresh OpenCV people counts, VLM
+detections/flags/people-counts and Observations as they arrive, backfills
+SDOT/osint artifacts if missing, recomputes the live edge overlay INSIDE
+the A*, and **auto-replaces the path** (per the 16 Aug design decision)
+with a bumped `version`. UI polls ~2 s, re-renders when `version` moves.
+Sessions expire 180 s after the last poll. `DELETE` to stop early.
 
-Spikes 2 & 3 are closed: deterministic A* (no LLM routing — slower by orders of
-magnitude, non-reproducible, unverifiable to a judge; our own §5 "No ML" rule
-already forbids it), no new OSS engine (the differentiator is the weights, the
-router is the boring solved part and stays boring).
+## Cost model (verbatim in every response's `risk_basis`)
 
-## What exists today (consolidation inputs — port, don't rewrite)
+    cost(edge) = length_m × (1 + 3.0 × min(risk, 1.2))
 
-| Piece | Where | What it contributes |
+| part | weight | source |
 |---|---|---|
-| A* + REAL SDOT static risk (collisions, sidewalk inventory, arterial class, slope) | `experiments/safe-walk/safewalk/routing.py`, `static_data.py` | the real static weight layers; measured 2.4 ms |
-| A* over Overpass-built graph, per-segment `base_risk`/`risk_parts`, cameras_en_route, detour cap | `modules/harness/harness/routing.py` | segment sheet + en-route camera logic. **Its `_jitter()` collision/confidence/stale numbers are fabricated placeholders and MUST NOT ship** (already stripped by media-ingest when forwarding) |
-| A* from committed OSM data (no network on fresh checkout), honest `inferred` markers, §6.4-shaped output | `modules/walk-app/server/routing.ts` | the committed-data graph build + honesty pattern for untagged inputs |
-| Live evidence overlay: camera coverage + pixel activity, co-presence, lit+sun, open refuges → `live_risk` with a documented formula | `modules/media-ingest/ingest/pathrisk.py` → `GET :8030/api/path` | already running end-to-end (two clicks → risk-colored segments in the test console) |
+| traffic | .16 | OSM road class |
+| lighting | .14 | `lit` tag / class prior — ×0.15 in daylight |
+| sidewalk | .14 | OSM sidewalk tags |
+| collisions | .24 | **REAL SDOT** ped/cyclist density per 100 m — 9,708 records fetched live from ArcGIS `SDOT_Collisions_All_Years_1` (safe-walk's query, paginated), cached artifact |
+| coverage | .16 | camera-coverage gap: nearest of 646 cameras >120 m → 1.0, ≤40 m → 0, −0.15/extra camera ≤100 m |
+| osint | .10 | Dhruv's AreaSignals (`signals.latest.json` §6.3) — **currently 0 + `layers_pending:["osint-signals"]`, no data produced yet; rerun `python -m pathfind.build_static` when it lands** |
+| crossings | .06 | junction density |
+| occupancy (LIVE) | .25 | **the night rule**: cameras see ≥3 people → 0.0 · no motion/none → 0.5 · 1–2 people → 1.0; ×0.15 in daylight. NIGHT = after 20:00 local OR sun below horizon (NOAA) |
+| vlm_flags (LIVE) | .10 | any VLM flag on a covering camera (not day-scaled) |
 
-## The consolidated design
+Verified live at 01:40: a corridor where one camera saw 1 person maxed
+occupancy and pushed its segments to `high` while empty streets sat at the
+0.5 middle — the specified ordering, visible in the search.
 
-1. **Graph**: committed-data build (walk-app's approach — a fresh checkout must
-   route with zero network), extended to harness's bbox if time allows.
-2. **Static weights**: safe-walk's real SDOT layers (collisions normalized by
-   segment length only — no invented exposure model), OSM sidewalk/lit/class
-   with walk-app's `inferred` honesty markers.
-3. **Live weights, native**: media-ingest evidence (activity, co-presence,
-   refuge-open-now, darkness) fetched per corridor and applied as edge-cost
-   multipliers INSIDE the A* relaxation — risk is part of the search, exactly
-   as "safer" already works, with the RISK_FORMULA documented in the response.
-4. **Entrypoints**: Python lib call + `GET /api/route` (§6.6 shape + enriched
-   segments as media-ingest's `/api/path` returns today). Live-location input
-   is just origin=device GPS — no special path.
+## PathObject contract (what UI teams consume)
 
-## Contracts
+`path_id, version, live{incorporated, basis, layers_incorporated,
+layers_pending, cameras_reporting}, night/daylight, polyline[[lat,lon]],
+length_m, eta_min, segments[{segment_id, name, geometry, length_m, risk,
+live_risk, base_risk, risk_bucket(low/med/high), risk_parts{...all parts
+named+weighted}, cameras[]}], cameras_en_route[ids],
+cameras_en_route_detail[{...live activity state}], cv_detections{cid:
+full CV result — shipped WITH the path}, refuges_en_route[open businesses],
+evidence_summary, risk_basis, compute_ms, detour_cap_hit`.
 
-Produces `Route` §6.6 exactly; enriched segment fields are additive siblings
-(same shape media-ingest `/api/path` serves today). `SegmentAssessment` §6.4
-stays synthesis's — if synthesis lands, its per-segment `risk` REPLACES our
-live formula (ours is the stopgap, labeled as such).
+## Build & operate
 
-## Binding rules
+```bash
+python -m pathfind.build_static   # camera coverage + SDOT + osint → data/edge_static.json (~8 s)
+# alignment guard: if harness's walk_graph.json is rebuilt (bbox change),
+# the overlay refuses to load until this is rerun — wrong-index weights are
+# worse than no weights.
+```
 
-- Deterministic: same inputs → same route, always.
-- No fabricated numbers. Anything untagged/unmeasured is `null`/`inferred`,
-  never a plausible-looking value. `_jitter()`-derived fields never ship.
-- Every weight in the output carries its source (`sdot-collisions`, `osm-tag`,
-  `pixel-activity`, `osm-opening-hours`, …).
-- Router-consolidation decision needs Ioli + Dhruv sign-off at the table
-  (walk-app's SPEC explicitly flags this as a team call).
+## LLM segment summaries (`pathfind/summarize.py`, 16 Aug)
 
-## Definition of done
+One-line per-segment phrasings of the deterministic factors + live camera
+reports, generated by **Ollama on the DGX Spark** (default
+`qwen2.5:3b-instruct`, non-thinking, ~1 s/segment warm; `OLLAMA_MODEL` /
+`OLLAMA_URL` override — on the Spark the default localhost:11434 just works,
+off-box tunnel with `ssh -N -L 11435:127.0.0.1:11434 spark`). Live sessions
+enqueue on start and re-enqueue whichever segments' evidence moves (path
+replacements AND occupancy-only ticks); a coalescing queue hashed on the
+evidence payload means unchanged segments never re-generate, and revised
+segments serve their old text with `revising:true` until the new one lands.
+Served via `GET/POST :8030/api/path/summaries…`. The model receives ONLY the
+segment's evidence and is instructed to restate it — LLM phrasing, labeled
+as such in `basis`; when Ollama is unreachable the API says so honestly
+instead of inventing text.
 
-Two clicks (or live location) → route in <50 ms static + ≤1 s with live
-evidence; all three legacy routers marked deprecated-for-demo by their owners;
-demo-ui renders the output with zero adaptation.
+## Coverage note (16 Aug)
+
+The walk graph + `edge_static.json` now cover the union bbox
+`(-122.355, 47.595) → (-122.285, 47.672)` — downtown AND U-District/UW/
+U-Village plus the Eastlake/Montlake corridors between (131,703 nodes /
+162,496 edges, 9,708 real SDOT collision points). Graph artifact still
+builds in `modules/harness` (bbox change there pends Ioli's sign-off);
+`build_static.py` BBOX must stay in sync with it.
+
+## Binding rules (unchanged)
+
+Deterministic; no fabricated numbers (harness's `_jitter` fields are not
+used anywhere in this module); every part carries its source; unknown =
+0 + `layers_pending`, never a plausible value; detour cap 1.25 (cap hit →
+direct route served + `detour_cap_hit: true`, never silently). The live
+formula is a mechanical evidence combination, labeled as such — synthesis's
+§6.4 `risk` replaces it per segment whenever synthesis exists.
+
+## Deprecation status (spike 4)
+
+This router is the shipping one. `modules/harness` routing (jitter fields)
+and `modules/walk-app` routing remain for their owners to mark
+deprecated-for-demo — sign-off still pending at the table.

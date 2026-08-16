@@ -159,6 +159,38 @@ def _detect_detlib(frame) -> dict:
 
 # ------------------------------------------ backend: yolo fallback workers
 
+def _prep_fast(frame):
+    """Laptop fast path: shrink + compress a frame BEFORE it crosses the
+    process boundary. Streamed frames arrive as full-res raw BGR ndarrays
+    (~6 MB to pickle per inference); bounding the long side to
+    CV_PREP_MAX_DIM and re-encoding as JPEG cuts that to tens of KB, and
+    the worker's decode/blob step gets cheaper too. Uniform scale keeps the
+    aspect ratio, so locate.py's ratio-based bearing/range math is
+    untouched. yolo-path only — detlib keeps the full frame."""
+    import cv2
+    import numpy as np
+
+    max_dim = config.CV_PREP_MAX_DIM
+    if max_dim <= 0:
+        return frame
+    if isinstance(frame, (bytes, bytearray)):
+        if len(frame) <= config.CV_PREP_MAX_JPEG_KB * 1024:
+            return frame          # already compact — skip a decode/re-encode
+        img = cv2.imdecode(np.frombuffer(frame, np.uint8), cv2.IMREAD_COLOR)
+        if img is None:
+            return frame          # let the worker report the decode failure
+    else:
+        img = frame
+    h, w = img.shape[:2]
+    scale = max_dim / max(w, h)
+    if scale < 1.0:
+        img = cv2.resize(img, (max(1, round(w * scale)), max(1, round(h * scale))),
+                         interpolation=cv2.INTER_AREA)
+    ok, buf = cv2.imencode(".jpg", img,
+                           [cv2.IMWRITE_JPEG_QUALITY, config.CV_PREP_JPEG_Q])
+    return buf.tobytes() if ok else frame
+
+
 def _detect_in_worker(frame) -> dict:
     """Runs inside a worker process. Loads the net once per process
     (module-level global), then serves forward passes. `frame` is JPEG
@@ -301,7 +333,9 @@ def _frame_for(node: dict):
     (stream) or JPEG bytes (fetch)."""
     cid = node["camera_id"]
     if node.get("has_stream"):
-        stream.ensure(node)
+        # never evict from here — the UI's focused-camera endpoint is the
+        # only caller allowed to displace another streamer
+        stream.ensure(node, evict=False)
         f, wall = stream.latest(cid)
         if f is not None:
             rec = {"camera_id": cid,
@@ -335,7 +369,8 @@ def _analyze_locked(node: dict, force: bool,
                       "(vlm-lab, source of truth)")
     else:
         try:
-            raw = _get_pool().submit(_detect_in_worker, frame_input).result(timeout=60)
+            raw = _get_pool().submit(_detect_in_worker,
+                                     _prep_fast(frame_input)).result(timeout=60)
         except Exception as exc:
             return {"camera_id": cid, "ok": False, "why": f"cv worker: {exc}"}
         model_name = "yolov4-tiny(opencv-dnn, cpu-latency fallback)"
@@ -396,19 +431,21 @@ def _prefetch_loop() -> None:
                 _hot.pop(c, None)
             items = [(c, node) for c, (ts, node) in _hot.items()]
         for cid, node in items:
+            streamed = False
             if node.get("has_stream"):
-                # live streamer: analyze whenever a frame newer than the
-                # cached result exists (stream cost is fixed; inference
-                # cadence is bounded only by inference speed)
-                stream.ensure(node)
-                f, wall = stream.latest(cid)
-                if f is None:
-                    continue
-                with _cache_lock:
-                    cached = _cache.get(cid)
-                if cached and cached.get("frame_ts") == _iso_at(wall):
-                    continue
-            else:
+                # live streamer when a slot is free (never churn-evict from
+                # the prefetcher); full house falls back to the gated path
+                s = stream.ensure(node, evict=False)
+                if s is not None:
+                    f, wall = s.latest()
+                    if f is None:
+                        continue        # streamer still spinning up
+                    with _cache_lock:
+                        cached = _cache.get(cid)
+                    if cached and cached.get("frame_ts") == _iso_at(wall):
+                        continue
+                    streamed = True
+            if not streamed:
                 key, interval = feeds.frame_gate_key(node)
                 if feeds.gate_remaining(key, interval) > 0:
                     continue    # no new frame possible yet — stay idle
@@ -441,6 +478,21 @@ def analyze_point_cv(g, lat: float, lon: float,
     }
 
 
+def mark_hot(node: dict) -> None:
+    """Public hook for other components (pathfind live sessions): put a
+    camera on the prefetcher's hot list WITHOUT running anything inline.
+    The prefetcher then keeps its CV cache warm at the gated cadence."""
+    with _hot_lock:
+        _hot[node["camera_id"]] = (time.monotonic(), node)
+    _ensure_prefetcher()
+
+
+def cached_result(cid: str) -> dict | None:
+    """Read-only view of the last CV result for a camera. Never blocks."""
+    with _cache_lock:
+        return _cache.get(cid)
+
+
 def status() -> dict:
     with _hot_lock:
         hot = sorted(_hot.keys())
@@ -459,6 +511,9 @@ def status() -> dict:
         "workers": config.CV_WORKERS if backend == "yolo" else 1,
         "classes": sorted(KEEP_CLASSES.values()),
         "prefetch": config.CV_PREFETCH,
+        "prep": ({"max_dim": config.CV_PREP_MAX_DIM,
+                  "jpeg_q": config.CV_PREP_JPEG_Q}
+                 if config.CV_PREP_MAX_DIM > 0 else None),
         "hot_cameras": hot,
         "streamers": stream.active(),
         "detlib_error": _dl_error,

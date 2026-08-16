@@ -23,10 +23,10 @@ Each row exists and works somewhere today; the work is porting, not inventing.
 |---|---|---|---|
 | 1 | Map + all 646 cameras, dot brightness = pixel activity | berkan_testing | `:8030/api/cameras`, `/api/activity` |
 | 2 | Live HLS video + snapshot fallback per camera | berkan_testing, walk-app | `:8030/api/hls/…`, `/api/frame/…` |
-| 3 | Two-point (or live-location) routing | berkan_testing PATH mode, walk-app, map-frontend | `:8030/api/path` → `modules/pathfinding` when it lands |
-| 4 | **Risk-colored path segments** (green/amber/red) with per-segment evidence popover | berkan_testing | `/api/path` segments: `live_risk`, `risk_bucket`, `evidence`, `risk_basis` |
-| 5 | **En-route cameras** highlighted + tappable | berkan_testing, harness `cameras_en_route` | `/api/path` `cameras_en_route_detail` |
-| 6 | **Open "exit route" businesses** along the path (green dots, open-until) | berkan_testing | `/api/path` `refuges_en_route`; `/api/refuge…` |
+| 3 | Two-point (or live-location) routing **with live auto-replacing updates** | berkan_testing PATH + TAKE ME TO modes | **`:8030/api/route` (landed 01:45) + poll `/api/route/live/{path_id}`** — render on `version` change; show the `live.incorporated` badge until layers land |
+| 4 | **Risk-colored path segments** (green/amber/red) with per-segment factor popover | berkan_testing | `/api/route` segments: `risk`, `risk_bucket`, `risk_parts` (all named+sourced), `risk_basis` |
+| 5 | **En-route cameras** highlighted + tappable | berkan_testing | `/api/route` `cameras_en_route` + `cameras_en_route_detail` |
+| 6 | **Open "exit route" businesses** along the path (green dots, open-until) | berkan_testing | `/api/route` `refuges_en_route`; `/api/refuge…` |
 | 7 | Local-CV 3D objects (cars/people) around a focused camera, fast lane + HQ detlib pass | berkan_testing | `/api/cv/camera/{cid}`, `?backend=detlib` |
 | 8 | FOV cones + bearing state per camera | berkan_testing | camera responses `bearing` |
 | 9 | Street context + refuge summary panels (structural facts, honest unknowns) | berkan_testing | `/api/context/{cid}` |

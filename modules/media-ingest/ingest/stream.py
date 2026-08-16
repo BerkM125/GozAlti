@@ -111,9 +111,12 @@ class CamStreamer(threading.Thread):
             pass
 
 
-def ensure(node: dict) -> CamStreamer | None:
+def ensure(node: dict, evict: bool = True) -> CamStreamer | None:
     """Start (or touch) the streamer for a camera. Enforces STREAM_MAX by
-    evicting the least-recently-used streamer."""
+    evicting the least-recently-used streamer — unless evict=False, in
+    which case a full house returns None and the caller should use the
+    gated segment-poll path instead (prevents many hot cameras from
+    churning each other's streamers to death before they decode a frame)."""
     if not node.get("has_stream") or not node.get("hls_url"):
         return None
     cid = node["camera_id"]
@@ -123,6 +126,8 @@ def ensure(node: dict) -> CamStreamer | None:
             s.touch()
             return s
         if len(_streams) >= config.STREAM_MAX:
+            if not evict:
+                return None
             lru = min(_streams.values(), key=lambda x: x.last_used)
             lru.stop_flag.set()
             _streams.pop(lru.cid, None)

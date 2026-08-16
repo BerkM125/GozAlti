@@ -256,6 +256,73 @@ def api_analyze(cid: str):
     return res
 
 
+# ------------------------------- consolidated router (modules/pathfinding)
+
+import sys as _sys
+_sys.path.insert(0, str(config.REPO_ROOT / "modules" / "pathfinding"))
+import pathfind  # noqa: E402
+
+
+@app.get("/api/route")
+def api_route(olat: float, olon: float, dlat: float, dlon: float,
+              kind: str = "safer", live: bool = True):
+    """THE one-and-done pathfinding function (modules/pathfinding).
+    Deterministic layers + cached OpenCV, returns immediately with
+    live.incorporated=false; live=true (default) also starts the
+    PathLiveSession that auto-replaces the path as VLM/CV/SDOT arrive —
+    poll GET /api/route/live/{path_id}. Full cost model: risk_basis field."""
+    try:
+        if live:
+            return pathfind.start_session(olat, olon, dlat, dlon, kind)
+        return pathfind.find_path(olat, olon, dlat, dlon, kind)
+    except ValueError as exc:
+        raise HTTPException(422, {"error": str(exc)})
+
+
+@app.get("/api/route/live/{path_id}")
+def api_route_live(path_id: str, since: int | None = None):
+    """Poll the live session: {version, changed_since, path}. ~2 s cadence
+    is safe — all upstream fetching is gated inside the session loop."""
+    s = pathfind.get_session(path_id)
+    if s is None:
+        raise HTTPException(404, "no such live session (expired after idle?)")
+    return s.snapshot(since)
+
+
+@app.delete("/api/route/live/{path_id}")
+def api_route_live_stop(path_id: str):
+    return {"stopped": pathfind.stop_session(path_id)}
+
+
+# ------------------- per-segment LLM summaries (Ollama on the DGX Spark)
+
+@app.post("/api/path/summaries")
+def api_path_summaries_post(body: dict):
+    """Queue/refresh LLM phrasings of per-segment evidence. Body:
+    {path_id, segments:[{seg_key, ...evidence}]}. Coalesces on unchanged
+    evidence; changed evidence re-queues and the old text serves with
+    revising=true until replaced. pathfind live sessions enqueue
+    automatically — this endpoint is for UI-supplied evidence (/api/path)."""
+    from pathfind import summarize
+    pid = body.get("path_id")
+    if not pid:
+        raise HTTPException(422, "path_id required")
+    return summarize.enqueue(pid, body.get("segments", []))
+
+
+@app.get("/api/path/summaries/{path_id}")
+def api_path_summaries_get(path_id: str):
+    """Poll summaries: {available, why, model, pending, summaries}."""
+    from pathfind import summarize
+    return summarize.get(path_id)
+
+
+@app.get("/api/path/summaries")
+def api_path_summaries_status():
+    from pathfind import summarize
+    return summarize.status()
+
+
 # --------------------------------------------- evidence-enriched pathfinding
 
 @app.get("/api/path")
@@ -289,6 +356,8 @@ def api_cv_camera(cid: str, force: bool = False, backend: str | None = None):
     if backend not in (None, "detlib", "yolo"):
         raise HTTPException(422, "backend must be detlib or yolo")
     node = _node_or_404(cid)
+    from . import stream
+    stream.ensure(node)   # the focused camera may evict an LRU streamer
     return cvdetect.analyze_camera_cv(node, force=force, backend=backend)
 
 

@@ -30,7 +30,12 @@ uvicorn ingest.service:app --port 8030
   PATH again for a fresh one). Click any segment for the **deterministic
   factor popup**: every ± term of the server's RISK_FORMULA
   (base structural risk, night+unlit, camera coverage, open refuges)
-  with the evidence behind it. On render, every en-route camera gets
+  with the evidence behind it. The popup also carries an **LLM summary**
+  (Ollama ON the Spark via `/api/path/summaries`) that live-updates while
+  open: queued as deterministic + opencv evidence arrives, revised whenever
+  the live session moves a segment's evidence. Off-box dev needs
+  `OLLAMA_URL` pointed at a tunnel (`ssh -N -L 11435:127.0.0.1:11434 spark`).
+  On render, every en-route camera gets
   **one still-frame detlib pass** (Adi's stack, source of truth, ≤4
   concurrent) — people/vehicle boxes land on the map, tally in the cambar.
 - **TAKE ME TO** — one click → route from YOUR current location to that

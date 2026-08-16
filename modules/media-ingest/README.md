@@ -123,7 +123,23 @@ All responses JSON unless noted. Every enrichment field carries its
 | `POST /api/priority {"camera_ids": [...]}` | mark hot-lane cameras (en-route) — processed first every pass |
 | `POST /api/sweep/start` / `/api/sweep/stop`, `GET /api/sweep/status` | BFS traversal loop over all cameras, 10 s rest between passes; activity flag drives the hot/slow lanes; **runs with no VLM backend too** (fetch-only passes keep activity flags fresh) |
 
-### 2.45 Evidence-enriched pathfinding
+### 2.44 CONSOLIDATED PATHFINDING (`modules/pathfinding`, served here)
+
+| Endpoint | What it does |
+|---|---|
+| `GET /api/route?olat=&olon=&dlat=&dlon=&kind=safer&live=true` | **THE one-and-done router** (god SPEC §5.1 spike 4): deterministic A* with every static layer IN the edge weights — REAL SDOT collisions (9.7k records), camera coverage, OSM structure, osint hook — plus cached OpenCV shipped with the path. ~50 ms. Returns a versioned PathObject with `live.incorporated:false`; `live=true` (default) auto-starts the live session |
+| `GET /api/route/live/{path_id}?since=N` | Poll the PathLiveSession: fresh OpenCV + VLM flags/people-counts enter the A* as they arrive (night rule: ≥3 people 0.0 / no motion 0.5 / 1–2 people 1.0, day ×0.15) and the path **auto-replaces** with `version`++ |
+| `DELETE /api/route/live/{path_id}` | stop a session (they also expire 180 s after the last poll) |
+| `GET /api/path/summaries/{path_id}` | **Per-segment LLM summaries** (Ollama ON the Spark, default `qwen2.5:3b-instruct`, ~1 s/segment warm): one-line phrasings of each segment's deterministic factors + live camera reports. Live sessions queue them automatically at start and re-queue whichever segments' evidence moves (version bumps AND occupancy-only changes); serves `{available, why, model, pending, summaries:{seg: {text, evidence_rev, revising}}}` — old text serves with `revising:true` until the refreshed one lands. LLM phrasing of given evidence only, labeled as such — never a verdict, never canned text when the backend is down |
+| `POST /api/path/summaries` | queue UI-supplied evidence payloads (`{path_id, segments:[{seg_key, ...}]}`) — coalesces on an evidence hash, unchanged segments are never re-generated |
+
+Env: `OLLAMA_URL` (default `http://127.0.0.1:11434` — correct on the Spark;
+off-box dev: `ssh -N -L 11435:127.0.0.1:11434 spark` then
+`OLLAMA_URL=http://127.0.0.1:11435`), `OLLAMA_MODEL` to override the model.
+
+Full contract + cost table: `modules/pathfinding/SPEC.md`.
+
+### 2.45 Evidence-enriched pathfinding (LEGACY — superseded by 2.44)
 
 | Endpoint | What it does |
 |---|---|
@@ -152,6 +168,15 @@ both sides. Backend policy (`CV_BACKEND`):
 second inference layer**: how frames reach the detector and how results
 reach the map is this module's machinery (streaming, prefetch, caching
 below); *what constitutes a detection* is detlib's alone.
+
+**Laptop fast-path frame prep**: before a frame is handed to the yolo
+worker pool, its long side is bounded to `CV_PREP_MAX_DIM` (640) px and it
+is re-encoded as JPEG (`CV_PREP_JPEG_Q`, 80) — streamed frames otherwise
+cross the process boundary as ~6 MB raw ndarrays; prepped they are ~80 KB.
+Uniform scale keeps the aspect ratio, so the ratio-based bearing/range math
+in `ingest/locate.py` is unchanged. JPEGs already ≤ `CV_PREP_MAX_JPEG_KB`
+(220) skip the round trip; `CV_PREP_MAX_DIM=0` disables prep entirely.
+detlib (the HQ source-of-truth pass) always receives the full frame.
 
 The mathematics layer then converts pixel boxes into lat/lon estimates
 using the camera's resolved bearing, an assumed FOV, and known-height
