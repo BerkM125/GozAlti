@@ -136,6 +136,37 @@ class TestDeadCamera(unittest.TestCase):
             service.observe({"camera_id": "X", "path": "/nope/missing.jpg", "stale": False})
 
 
+class TestIllumination(unittest.TestCase):
+    """Lighting is measured, not asked of the model. safe-walk caught the VLM calling a
+    2 a.m. street 'daylight'; a histogram cannot do that."""
+
+    def frames(self, pat):
+        return sorted((HERE / "lab" / "samples").glob(pat))
+
+    def test_night_frames_are_darker_than_day_frames(self):
+        night = [service.illumination(f) for f in self.frames("night__*.jpg")]
+        day = [service.illumination(f) for f in self.frames("crowd__*.jpg")]
+        night = [x for x in night if x]; day = [x for x in day if x]
+        if not night or not day:
+            self.skipTest("need both night and daylight samples")
+        nm = sum(x["mean_luma"] for x in night) / len(night)
+        dm = sum(x["mean_luma"] for x in day) / len(day)
+        self.assertLess(nm, dm, f"night mean luma {nm:.1f} should be below day {dm:.1f}")
+
+    def test_shape_and_ranges(self):
+        f = self.frames("*.jpg")[0]
+        lum = service.illumination(f)
+        self.assertIsNotNone(lum)
+        self.assertIn(lum["bucket"], ("dark", "dim", "lit"))
+        self.assertGreaterEqual(lum["mean_luma"], 0.0)
+        self.assertLessEqual(lum["mean_luma"], 255.0)
+        self.assertGreaterEqual(lum["dark_fraction"], 0.0)
+        self.assertLessEqual(lum["dark_fraction"], 1.0)
+
+    def test_missing_file_returns_none_not_raise(self):
+        self.assertIsNone(service.illumination(Path("/nope/missing.jpg")))
+
+
 class TestLive(unittest.TestCase):
     """Only run with --live: requires the service up and a real frame."""
     BASE = os.environ.get("VLM_URL", "http://127.0.0.1:8040")
@@ -234,6 +265,17 @@ class TestLive(unittest.TestCase):
         self.assertLess(out["per_frame_s"], serial_per_frame,
                         "batch should be faster per frame than one-at-a-time")
 
+    def test_illumination_is_in_the_response(self):
+        f = sorted((HERE / "lab" / "samples").glob("night__*.jpg"))[0]
+        obs = self.post("/read", {"camera_id": "NIGHT-TEST",
+                                  "captured_at": "2026-08-16T07:00:00Z", "kind": "frame",
+                                  "path": str(f), "source": "sdot-snapshot", "stale": False},
+                        timeout=300)
+        lum = obs.get("_ext", {}).get("illumination")
+        self.assertIsNotNone(lum, "illumination missing from the observation")
+        print(f"\n    {f.name[:34]}: luma {lum['mean_luma']} bucket {lum['bucket']} "
+              f"dark_frac {lum['dark_fraction']} -> flags {obs['flags']}")
+
     def test_cache_hit_is_fast_and_identical(self):
         """Two users routing past the same camera must not both pay for the GPU."""
         f = sorted((HERE / "lab" / "samples").glob("*.jpg"))[0]
@@ -265,7 +307,8 @@ def main():
     a, rest = ap.parse_known_args()
     loader = unittest.TestLoader()
     suite = unittest.TestSuite()
-    for cls in (TestFlagEnum, TestValidate, TestAsList, TestParseJson, TestDeadCamera):
+    for cls in (TestFlagEnum, TestValidate, TestAsList, TestParseJson, TestDeadCamera,
+                TestIllumination):
         suite.addTests(loader.loadTestsFromTestCase(cls))
     if a.live:
         suite.addTests(loader.loadTestsFromTestCase(TestLive))

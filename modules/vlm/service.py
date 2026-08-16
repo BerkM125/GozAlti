@@ -155,6 +155,42 @@ def cache_put(key, obs):
             _cache.popitem(last=False)
 
 
+# ---------- illumination -----------------------------------------------------------
+
+# CPTED's seven factors put lighting among the strongest positive contributors to how
+# safe a street feels (see ../SAFETY-SIGNALS.md). We measure it rather than ask the VLM:
+# safe-walk found the VLM calling a 2 a.m. street "daylight", and a histogram cannot
+# hallucinate. ~1 ms on top of a 66 ms detector pass.
+#
+# Thresholds are on mean luma (BT.601, 0-255) and are deliberately coarse — they sort
+# frames into buckets a person would agree with, not a photometric measurement. A camera
+# with its own IR illuminator reads bright at night, which is correct for our purpose:
+# the question is whether a walker can see, not what time it is.
+LUMA_DARK = 45.0        # below this, the scene is genuinely dark
+LUMA_DIM = 80.0         # below this, lit but poorly
+
+
+def illumination(img_path):
+    """Mean luma, the fraction of the frame that is near-black, and a coarse bucket."""
+    try:
+        import cv2, numpy as np
+        im = cv2.imread(str(img_path))
+        if im is None:
+            return None
+        y = cv2.cvtColor(im, cv2.COLOR_BGR2GRAY)
+        mean = float(y.mean())
+        # how much of the frame a walker simply cannot see into
+        dark_frac = float((y < 30).sum()) / y.size
+        # spread separates "evenly lit" from "one bright streetlight, rest black"
+        spread = float(y.std())
+        bucket = ("dark" if mean < LUMA_DARK else
+                  "dim" if mean < LUMA_DIM else "lit")
+        return {"mean_luma": round(mean, 1), "dark_fraction": round(dark_frac, 3),
+                "spread": round(spread, 1), "bucket": bucket}
+    except Exception:
+        return None
+
+
 # ---------- detector ---------------------------------------------------------------
 
 def detector():
@@ -289,6 +325,8 @@ def observe(rec):
     _stats["cache_misses"] += 1
     t_start = time.time()
 
+    lum = illumination(path)          # ~1 ms, no GPU, cannot hallucinate
+
     with _lock:                       # one GPU, one detector at a time
         people, vehicles, det_ms = run_detector(path)
 
@@ -298,6 +336,11 @@ def observe(rec):
     flags = []
     if not people:
         flags.append("no_people")
+    # poor_lighting comes from the measurement, not from the model's opinion. It fires
+    # when the frame is genuinely dark OR when most of it is unreadable even though a
+    # single light source pulls the mean up.
+    if lum and (lum["bucket"] == "dark" or lum["dark_fraction"] > 0.55):
+        flags.append("poor_lighting")
 
     ctx = context_block(people, vehicles)
     ins, tries = None, 0
@@ -326,15 +369,14 @@ def observe(rec):
         w = WALKWAY_FLAG.get(ins.get("walkway_status"))
         if w:
             flags.append(w)
-        if ins.get("lighting") == "dark_unlit":
-            flags.append("poor_lighting")
         base["flags"] = [f for f in flags if f in FLAGSET]
         parts = [ins.get("activity") or "", ins.get("walkway_reason") or "",
                  ins.get("setting_notes") or ""]
         base["caption"] = " ".join(p.strip() for p in parts if p.strip())[:400]
 
     # extensions beyond §6.2 — additive, consumers may ignore
-    base["_ext"] = {"vehicles": vehicles, "vehicle_count": sum(vehicles.values()),
+    base["_ext"] = {"illumination": lum,
+                    "vehicles": vehicles, "vehicle_count": sum(vehicles.values()),
                     "detector_ms": det_ms, "vlm_tries": tries,
                     "scene": (ins or {}).get("scene"),
                     "walkway_status": (ins or {}).get("walkway_status"),
