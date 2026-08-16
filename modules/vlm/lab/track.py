@@ -132,10 +132,64 @@ class Tracker:
         self.tracks = []
         return self.done
 
-    def summary(self, fps_sampled):
+    def stitch(self, max_gap_s=1.5, gate_bh=1.4, size_ratio=1.7):
+        """Rejoin tracks that the same person left behind when they were briefly lost.
+
+        Fragmentation is the one thing that can inflate "unique people" past the truth:
+        a walker who passes behind a bus for three sampled frames comes back as a new
+        id, and the headline number quietly counts them twice. So after tracking, any
+        track that ENDS is offered to any track that STARTS shortly after, and they are
+        joined when the second one begins near where the first was heading, at a
+        compatible size. Best-scoring pair first, repeat until nothing merges.
+
+        The gates are deliberately tight — a wrong join merges two real people into
+        one and undercounts, which is just as dishonest as overcounting.
+        """
+        tracks = [t for t in self.done if t]
+        joins = 0
+        while True:
+            cands = []
+            for A in tracks:
+                for B in tracks:
+                    if A is B:
+                        continue
+                    gap = B.obs[0]["t"] - A.obs[-1]["t"]
+                    if not (0 < gap <= max_gap_s):
+                        continue
+                    la, fb = A.obs[-1], B.obs[0]
+                    px, py = la["cx"] + A.vx * gap, la["cy"] + A.vy * gap
+                    h = max(la["h"], fb["h"], 0.02)
+                    dist = math.hypot(fb["cx"] - px, fb["cy"] - py) / h
+                    lo, hi = sorted((max(la["h"], 1e-6), max(fb["h"], 1e-6)))
+                    if dist <= gate_bh and hi / lo <= size_ratio:
+                        cands.append((dist, id(A), id(B), A, B))
+            if not cands:
+                break
+            cands.sort(key=lambda c: c[0])
+            used = set()
+            did = 0
+            for _, ia, ib, A, B in cands:
+                if ia in used or ib in used:
+                    continue
+                used.add(ia); used.add(ib)
+                A.obs.extend(B.obs)
+                A.obs.sort(key=lambda o: o["t"])
+                tracks.remove(B)
+                did += 1
+            joins += did
+            if not did:
+                break
+        self.done = tracks
+        self.joins = joins
+        return joins
+
+    def summary(self, fps_sampled, stitch=True):
         """One record per track: dwell, travel, speed, motion class, facing."""
+        self.finish()
+        if stitch:
+            self.stitch()
         out = []
-        for tr in sorted(self.finish(), key=lambda t: t.id):
+        for tr in sorted(self.done, key=lambda t: t.id):
             n = len(tr.obs)
             first, last = tr.obs[0], tr.obs[-1]
             dwell = round(last["t"] - first["t"], 2)
@@ -215,7 +269,7 @@ def aggregate(per_frame, tracks, fps_sampled, duration):
         "vehicles_mean": round(sum(vcounts) / len(vcounts), 2) if vcounts else 0,
         "tracks_total": len(tracks),
         "unique_people": len(confirmed),
-        "unique_people_note": f"tracks seen in >= {2} sampled frames; "
+        "unique_people_note": f"tracks seen in >= 2 sampled frames; "
                               f"{len(tracks) - len(confirmed)} single-frame tracks excluded",
         "dwell_median_s": dwells[len(dwells) // 2] if dwells else 0,
         "dwell_max_s": dwells[-1] if dwells else 0,
