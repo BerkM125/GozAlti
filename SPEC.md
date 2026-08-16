@@ -77,7 +77,14 @@ GozAlti/
 │   ├── vlm/
 │   ├── media-ingest/
 │   ├── osint/
-│   └── synthesis/
+│   ├── synthesis/
+│   ├── walk-app/            ← mobile PWA shell (Aug 16)
+│   ├── pathfinding/         ← the ONE router that ships (Aug 16 sprint)
+│   ├── demo-ui/             ← final-UI reconciliation checklist (Aug 16 sprint)
+│   ├── ios-pwa/             ← iOS PWA constraints + on-device test (Aug 16 sprint)
+│   ├── audio-lm/            ← voice companion STT/TTS loop (Aug 16 sprint)
+│   ├── offpath-911/         ← off-path prompt + gated escalation (Aug 16 sprint)
+│   └── calling/             ← optional outbound-call feature, cut first
 └── demo/                    ← demo script, video assets, run-of-show
 ```
 
@@ -97,10 +104,50 @@ counts).
 | `modules/osint` | Non-Media Scraping (optional) — **model's input** | Dhruv | 3 | Scrape Reddit/news/Seattle PD for area-level safety sentiment from past events and anecdotes. |
 | `modules/synthesis` | Data Synthesis — **model's output** | All (downstream) | 3 | Combine media evidence + VLM reads + osint sentiment into final per-segment assessments and live alerts. |
 | `demo/` | Demo/Video — **ESSENTIAL TO DEMO** | Min. 3 people | — | Demo script, filming plan, live run-of-show, fallback recordings. |
+| `modules/walk-app` | Mobile PWA walking app | Dhruv | 3 | React/Bun/Vite PWA: glass UI, in-process pedestrian routing from committed OSM data, media-ingest proxy. Carries one of the repo's three routers — see `modules/pathfinding`. |
+| `modules/pathfinding` | **Final pathfinding tool** (Aug 16 sprint) | Berkan | 3 | ONE shipped router: live-location-or-point → point, deterministic A*, every real weight + live camera evidence natively in the search. Consolidates the three existing routers; spikes 2 & 3 are CLOSED (deterministic A*; no LLM routing; no new OSS engine). |
+| `modules/demo-ui` | **Final demo UI** (Aug 16 sprint) — **ESSENTIAL TO DEMO** | All (UI leads: Dhruv + Ioli) | 4 | Single source of truth for what the ONE demo app must render: the feature checklist reconciling walk-app, map-frontend, and everything proven in the experimental console. |
+| `modules/ios-pwa` | iOS PWA constraints (was "iOS port") | Adi | 1 | There is no native port — walk-app is a PWA. This documents iOS Safari limits (secure-context geolocation, no background location, push ≥16.4+homescreen) and owns the 20-minute on-device test. |
+| `modules/audio-lm` | Audio LM companion | Adi | 3 | Open-weight STT (Whisper-class) + TTS conversation loop on the Spark. Confirmation-gated; feeds `modules/offpath-911`. |
+| `modules/offpath-911` | Sudden-turn / off-path emergency prompt | Berkan | 2 | Deterministic off-path detection (distance from route polyline over time) → audio prompt → explicit-confirmation escalation. **Never dials real 911 in dev or demo.** |
+| `modules/calling` | Outbound call to a contact — **OPTIONAL, cut first** | unassigned | 1 | AI places a call to a designated contact (never emergency services) with evidence-backed location/situation. Only if everything else is done. |
 
 Effort unit: 1 = 1 hour. Treat it as a budget, not an estimate — when a module
 exceeds its budget, cut scope inside the module rather than borrowing time from
 integration.
+
+### 5.1 Aug 16 sprint plan (spike dispositions + order of attack)
+
+Spike results (full write-up circulated 16 Aug; verified against the repo):
+
+- **Spike 1 (iOS vs Android): closed — reframed.** walk-app is a PWA; the real
+  risk is iOS Safari blocking `navigator.geolocation` over plain-HTTP LAN/tailnet
+  IPs (localhost is exempt). `modules/ios-pwa` owns the binary on-device test +
+  mitigations (mkcert / `tailscale cert` / laptop fallback).
+- **Spikes 2 & 3 (pathfinding algorithm / OSS offload): closed.** Deterministic
+  A* — already built three times, measured at ms-scale; §5 harness row already
+  says "No ML" and that stands. No LLM routing (slow, non-reproducible,
+  unverifiable); no new engine (Valhalla/GraphHopper/pgRouting are data-pipeline
+  rewrites, not spikes). The differentiator is the WEIGHTS, not the router.
+- **Spike 4 (which router ships): DECISION AT THE TABLE, 15 min.** Three routers
+  exist (safe-walk experiment, harness, walk-app). harness's
+  `_jitter()`-derived collision/confidence numbers violate the no-fabricated-data
+  rule and must not reach the demo (media-ingest's `/api/path` already strips
+  them when forwarding). Recommendation on the table: one router under
+  `modules/pathfinding`, weighted by real SDOT + live camera evidence.
+  Owner sign-off needed from Ioli (harness) and Dhruv (walk-app).
+- **Spike 5 (synthesis is empty): CRITICAL PATH.** It owns :8020 and the
+  flags→weight table (design already written in `modules/vlm/CAPABILITIES.md`;
+  port capped-nudge logic from `experiments/safe-walk/live.py`). Unblocks
+  map-frontend off its mocks. Highest-leverage work in the repo.
+- **Spike 6 (nothing validates obstruction detection):** watch the ~27
+  construction-flagged cameras, label with `modules/vlm/lab/label.py`, done at
+  ≥10 confirmed positives + a measured miss rate.
+
+Order of attack: synthesis (spike 5) → router decision (spike 4) → device test
+(spike 1) → Adi: `ios-pwa` + `audio-lm`; Berkan: `pathfinding` then
+`offpath-911` → all hands on `demo-ui` polish → 911 features frozen by 1 AM →
+demo plan + recording. `modules/calling` only if everything else is done.
 
 ## 6. Data contracts
 

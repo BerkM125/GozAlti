@@ -123,6 +123,12 @@ All responses JSON unless noted. Every enrichment field carries its
 | `POST /api/priority {"camera_ids": [...]}` | mark hot-lane cameras (en-route) — processed first every pass |
 | `POST /api/sweep/start` / `/api/sweep/stop`, `GET /api/sweep/status` | BFS traversal loop over all cameras, 10 s rest between passes; activity flag drives the hot/slow lanes; **runs with no VLM backend too** (fetch-only passes keep activity flags fresh) |
 
+### 2.45 Evidence-enriched pathfinding
+
+| Endpoint | What it does |
+|---|---|
+| `GET /api/path?olat=&olon=&dlat=&dlon=&kind=safer` | **Two points → walkable route with live evidence per segment.** The route itself is harness's risk-weighted A* (risk native to the search); this module overlays each segment with camera coverage + pixel-activity, co-presence recency, lighting (`lit` tag + NOAA sun), and businesses open right now, combining them into `live_risk` via the **documented formula** in `ingest/pathrisk.py` (`risk_basis` rides along in the response — a mechanical evidence combination for the demo, NOT a synthesis verdict; every input is in `evidence`). Also returns `cameras_en_route_detail` (with live activity state) and `refuges_en_route` (open businesses within 60 m of the walk — the "exit routes"). Harness's placeholder jitter fields (`live_penalty`/`confidence`/`stale`) are dropped, never forwarded. 422 with a machine-readable code on RouteError |
+
 ### 2.5 Local CV — cars + people with world positions (no VLM, no internet)
 
 **Inference is reconciled with the vlm module — there is ONE detection
@@ -166,7 +172,7 @@ FrameRecords / the snapshot pane stay consistent.
 | Endpoint | What it does |
 |---|---|
 | `GET /api/cv/status` | models ready? worker count, classes (person/bicycle/motorbike/car/bus/truck) |
-| `GET /api/cv/camera/{cid}?force=` | **single-camera pipeline**: rate-gated freshest frame → CNN worker → math layer. Calling it marks the camera **hot**: a background prefetcher then re-runs fetch+inference the moment the frame gate opens (and stops 30 s after the last request), so polls answer from warm cache in ~10–30 ms. Measured under a 1 s poll loop: upstream segment pulls stay exactly at the 6 s gate. Cached responses carry `cached: true`; concurrent calls dedupe onto one in-flight analysis |
+| `GET /api/cv/camera/{cid}?force=&backend=` | **single-camera pipeline**: rate-gated freshest frame → CNN worker → math layer. Calling it marks the camera **hot**: a background prefetcher then re-runs fetch+inference the moment the frame gate opens (and stops 30 s after the last request), so polls answer from warm cache in ~10–30 ms. Measured under a 1 s poll loop: upstream segment pulls stay exactly at the 6 s gate. Cached responses carry `cached: true`; concurrent calls dedupe onto one in-flight analysis. `backend=detlib&force=true` runs an on-demand **HQ pass through Adi's stack** regardless of the auto policy (the UI's "HQ PASS" button) |
 | `GET /api/cv/point?lat=&lon=&radius_m=150` | **parallel multi-camera pipeline**: point → cameras that see it (≤`CV_MAX_POINT_CAMERAS`) → frames fetched in parallel (≤4 upstream, gates hold) → simultaneous forward passes in the worker pool → merged world-positioned detections. Measured: 3 cameras end-to-end in <1 s wall-clock |
 
 Detection shape: `{label, conf, box:[x1,y1,x2,y2] normalized, est:{lat, lon,

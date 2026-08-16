@@ -235,10 +235,10 @@ def _iso_at(wall_ts: float) -> str:
     return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(wall_ts))
 
 
-def backend_ready() -> tuple[bool, str]:
+def backend_ready(backend: str | None = None) -> tuple[bool, str]:
     """(ready, why-not). detlib needs torch importable; yolo needs the
     downloaded model files."""
-    if _resolve_backend() == "detlib":
+    if (backend or _resolve_backend()) == "detlib":
         try:
             import torch  # noqa: F401
             return True, ""
@@ -250,41 +250,45 @@ def backend_ready() -> tuple[bool, str]:
     return True, ""
 
 
-def analyze_camera_cv(node: dict, force: bool = False) -> dict:
+def analyze_camera_cv(node: dict, force: bool = False,
+                      backend: str | None = None) -> dict:
     """Full single-camera pipeline: freshest frame (live streamer when the
     camera has one, rate-gated fetch otherwise) -> CNN -> mathematics layer
     -> cached result. Marks the camera hot so the prefetcher + streamer keep
-    its cache warm; concurrent calls dedupe onto one in-flight analysis."""
+    its cache warm; concurrent calls dedupe onto one in-flight analysis.
+    `backend` forces "detlib" (HQ pass, Adi's stack) or "yolo" per request."""
     cid = node["camera_id"]
-    ready, why = backend_ready()
+    ready, why = backend_ready(backend)
     if not ready:
         return {"camera_id": cid, "ok": False, "why": why}
     with _hot_lock:
         _hot[cid] = (time.monotonic(), node)
     _ensure_prefetcher()
 
-    with _inflight_lock:
-        ev = _inflight.get(cid)
-    if ev is not None:
-        ev.wait(timeout=10)
-        with _cache_lock:
-            cached = _cache.get(cid)
-        if cached:
-            return {**cached, "cached": True}
-    return _analyze_inline(node, force)
+    if backend is None:                # forced-backend calls skip the dedup
+        with _inflight_lock:
+            ev = _inflight.get(cid)
+        if ev is not None:
+            ev.wait(timeout=10)
+            with _cache_lock:
+                cached = _cache.get(cid)
+            if cached:
+                return {**cached, "cached": True}
+    return _analyze_inline(node, force, backend)
 
 
-def _analyze_inline(node: dict, force: bool = False) -> dict:
+def _analyze_inline(node: dict, force: bool = False,
+                    backend: str | None = None) -> dict:
     cid = node["camera_id"]
     with _inflight_lock:
-        if cid in _inflight:           # lost the race — serve current cache
+        if cid in _inflight and backend is None:   # lost the race — use cache
             with _cache_lock:
                 cached = _cache.get(cid)
             if cached:
                 return {**cached, "cached": True}
         ev = _inflight.setdefault(cid, threading.Event())
     try:
-        return _analyze_locked(node, force)
+        return _analyze_locked(node, force, backend)
     finally:
         with _inflight_lock:
             _inflight.pop(cid, None)
@@ -310,7 +314,8 @@ def _frame_for(node: dict):
     return blob, rec
 
 
-def _analyze_locked(node: dict, force: bool) -> dict:
+def _analyze_locked(node: dict, force: bool,
+                    backend_override: str | None = None) -> dict:
     cid = node["camera_id"]
     t0 = time.monotonic()
     frame_input, rec = _frame_for(node)
@@ -323,7 +328,7 @@ def _analyze_locked(node: dict, force: bool) -> dict:
     if cached and not force and cached.get("frame_ts") == rec["captured_at"]:
         return {**cached, "cached": True}
 
-    backend = _resolve_backend()
+    backend = backend_override or _resolve_backend()
     if backend == "detlib":
         raw = _detect_detlib(frame_input)
         model_name = (f"detlib/{config.CV_ARCH}@{(_dl or {}).get('device', '?')} "

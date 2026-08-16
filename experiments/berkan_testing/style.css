@@ -178,6 +178,22 @@ body.left-collapsed #rail-left { border-right: none; }
   #click-hint { display: none; }
 }
 
+/* dark popups (evidence popovers) */
+.maplibregl-popup-content {
+  background: var(--bg2); color: var(--fg);
+  font-family: var(--mono); font-size: 11px; line-height: 1.5;
+  border: 1px solid var(--line); border-radius: 0; padding: 8px 10px;
+}
+.maplibregl-popup-anchor-bottom .maplibregl-popup-tip { border-top-color: var(--bg2); }
+.maplibregl-popup-anchor-top .maplibregl-popup-tip { border-bottom-color: var(--bg2); }
+
+/* path mode */
+.cambar-note {
+  font-family: var(--mono); font-size: 11px; color: var(--dim);
+  padding: 4px 6px; white-space: nowrap;
+}
+.cambar-note [title] { cursor: help; }
+
 /* refuge list */
 .poi-row {
   display: flex; justify-content: space-between; gap: 8px; align-items: baseline;

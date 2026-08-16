@@ -256,6 +256,21 @@ def api_analyze(cid: str):
     return res
 
 
+# --------------------------------------------- evidence-enriched pathfinding
+
+@app.get("/api/path")
+def api_path(olat: float, olon: float, dlat: float, dlon: float,
+             kind: str = "safer"):
+    """Two points -> harness A* route (risk-weighted natively) enriched with
+    this module's live evidence per segment: camera coverage + activity,
+    co-presence, lighting + sun, open refuges. See pathrisk.RISK_FORMULA."""
+    from . import pathrisk
+    try:
+        return pathrisk.route_enriched(G, olat, olon, dlat, dlon, kind)
+    except pathrisk.harness.RouteError as exc:
+        raise HTTPException(422, {"error": exc.code, **exc.detail})
+
+
 # ---------------------------------------------- local OpenCV CNN pipeline
 
 @app.get("/api/cv/status")
@@ -265,13 +280,16 @@ def api_cv_status():
 
 
 @app.get("/api/cv/camera/{cid}")
-def api_cv_camera(cid: str, force: bool = False):
-    """Single-camera local pipeline: rate-gated freshest frame -> CNN in a
-    worker process -> mathematics layer -> world-positioned detections.
+def api_cv_camera(cid: str, force: bool = False, backend: str | None = None):
+    """Single-camera local pipeline: freshest frame (live streamer / gated
+    fetch) -> CNN -> mathematics layer -> world-positioned detections.
     Polling faster than new frames arrive returns the cached result
-    (`cached: true`) with zero upstream requests."""
+    (`cached: true`) with zero upstream requests. `backend=detlib` forces
+    an HQ pass through Adi's stack regardless of the auto policy."""
+    if backend not in (None, "detlib", "yolo"):
+        raise HTTPException(422, "backend must be detlib or yolo")
     node = _node_or_404(cid)
-    return cvdetect.analyze_camera_cv(node, force=force)
+    return cvdetect.analyze_camera_cv(node, force=force, backend=backend)
 
 
 @app.get("/api/cv/point")

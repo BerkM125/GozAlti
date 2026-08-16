@@ -61,6 +61,7 @@ function camGeojson() {
         id: c.camera_id, stream: c.has_stream ? 1 : 0,
         selected: c.camera_id === selected ? 1 : 0,
         hasDet: c.n_detections > 0 ? 1 : 0,
+        onpath: PATHCAMS.has(c.camera_id) ? 1 : 0,
         // pixel-activity tri-state: 1 active, 0 inactive, -1 unknown/stale
         act: c.active === true ? 1 : c.active === false ? 0 : -1,
       },
@@ -142,8 +143,12 @@ map.on("load", () => {
         ["==", ["get", "selected"], 1], 1.0,
         ["==", ["get", "act"], 1], 1.0,
         ["==", ["get", "act"], 0], 0.45, 0.8],
-      "circle-stroke-width": ["case", ["==", ["get", "hasDet"], 1], 2, 0.5],
-      "circle-stroke-color": ["case", ["==", ["get", "hasDet"], 1], "#FC8181", "#0B0E11"],
+      "circle-stroke-width": ["case",
+        ["==", ["get", "onpath"], 1], 2.5,
+        ["==", ["get", "hasDet"], 1], 2, 0.5],
+      "circle-stroke-color": ["case",
+        ["==", ["get", "onpath"], 1], "#E8EDF2",
+        ["==", ["get", "hasDet"], 1], "#FC8181", "#0B0E11"],
     },
   });
 
@@ -205,8 +210,50 @@ map.on("load", () => {
   map.on("mouseenter", "cams", () => (map.getCanvas().style.cursor = "pointer"));
   map.on("mouseleave", "cams", () => (map.getCanvas().style.cursor = ""));
 
+  // path layers sit under the camera dots, exits above everything
+  map.addSource("path-segs", { type: "geojson", data: { type: "FeatureCollection", features: [] } });
+  map.addLayer({
+    id: "path-glow", type: "line", source: "path-segs",
+    layout: { "line-cap": "round", "line-join": "round" },
+    paint: { "line-color": "#0B0E11", "line-width": 10, "line-opacity": 0.9 },
+  }, "cams");
+  map.addLayer({
+    id: "path-segs", type: "line", source: "path-segs",
+    layout: { "line-cap": "round", "line-join": "round" },
+    paint: {
+      "line-color": ["match", ["get", "bucket"],
+        "low", "#7CE38B", "medium", "#F6AD55", "high", "#FC8181", "#4FD1C5"],
+      "line-width": 5,
+    },
+  }, "cams");
+  map.addSource("path-exits", { type: "geojson", data: { type: "FeatureCollection", features: [] } });
+  map.addLayer({
+    id: "path-exits", type: "circle", source: "path-exits",
+    paint: {
+      "circle-radius": 7, "circle-color": "#7CE38B",
+      "circle-stroke-width": 2, "circle-stroke-color": "#0B0E11",
+    },
+  });
+  map.on("click", "path-exits", (e) => {
+    e.originalEvent._camHit = true;
+    const p = e.features[0].properties;
+    new maplibregl.Popup({ closeButton: false }).setLngLat(e.lngLat)
+      .setHTML(`<b>${p.name}</b><br>OPEN${p.until ? " until " + p.until : ""} · ${p.dist} m off path`)
+      .addTo(map);
+  });
+  map.on("click", "path-segs", (e) => {
+    if (e.originalEvent._camHit) return;
+    e.originalEvent._segHit = true;
+    const p = e.features[0].properties;
+    new maplibregl.Popup({ closeButton: false, maxWidth: "300px" }).setLngLat(e.lngLat)
+      .setHTML(`<b>${p.name}</b><br>risk ${p.risk} (${p.bucket}) · base ${p.base}<br>${p.facts}`)
+      .addTo(map);
+  });
+
   map.on("click", (e) => {
     if (e.originalEvent._camHit) return;
+    if (pathMode) { pathClick(e.lngLat.lat, e.lngLat.lng); return; }
+    if (e.originalEvent._segHit) return;
     clickPoint(e.lngLat.lat, e.lngLat.lng);
   });
 
@@ -349,6 +396,21 @@ async function cvLoop(cid) {
   }
 }
 
+$("btn-hq").onclick = async () => {
+  if (!selected) return;
+  const btn = $("btn-hq");
+  btn.disabled = true;
+  btn.textContent = "HQ RUNNING (detlib)…";
+  try {
+    const res = await fetch(`${API}/api/cv/camera/${selected}?backend=detlib&force=true`)
+      .then((r) => r.json());
+    ingestCvResult(res);
+    cvPanel(res);
+  } catch (_) {}
+  btn.disabled = false;
+  btn.textContent = "HQ PASS — ADI'S DETLIB";
+};
+
 function startCvFocus(cid) {
   const was = cvFocus;
   cvFocus = cid;
@@ -412,6 +474,122 @@ function renderRefuge(scope, res) {
     return `<div class="poi-row"><span class="nm">${p.name} <span style="opacity:.5">${Math.round(p.dist_m)}m</span></span><span class="st ${cls}">${st}</span></div>`;
   }).join("");
 }
+
+/* ------------------------------------------- evidence-weighted pathfinding */
+
+let pathMode = false;
+let pathA = null;                 // [lat, lon] of the first click
+let pathMarkers = [];
+const PATHCAMS = new Set();       // camera_ids highlighted as en-route
+
+function dropMarker(lat, lon, color) {
+  const el = document.createElement("div");
+  el.style.cssText = `width:16px;height:16px;border-radius:50%;background:${color};` +
+    "border:2px solid #0B0E11;box-shadow:0 0 0 3px rgba(232,237,242,0.25)";
+  const m = new maplibregl.Marker({ element: el }).setLngLat([lon, lat]).addTo(map);
+  pathMarkers.push(m);
+  return m;
+}
+
+function clearPath() {
+  pathA = null;
+  pathMarkers.forEach((m) => m.remove());
+  pathMarkers = [];
+  PATHCAMS.clear();
+  if (map.getSource("path-segs"))
+    map.getSource("path-segs").setData({ type: "FeatureCollection", features: [] });
+  if (map.getSource("path-exits"))
+    map.getSource("path-exits").setData({ type: "FeatureCollection", features: [] });
+  refreshMapData();
+}
+
+async function pathClick(lat, lon) {
+  if (pathA === null) {
+    clearPath();
+    pathA = [lat, lon];
+    dropMarker(lat, lon, "#F6AD55");           // A
+    $("cambar").innerHTML = `<span class="cambar-note">A set — click destination…</span>`;
+    return;
+  }
+  const [alat, alon] = pathA;
+  pathA = null;
+  dropMarker(lat, lon, "#4FD1C5");             // B
+  $("cambar").innerHTML = `<span class="cambar-note">routing…</span>`;
+  let r;
+  try {
+    const resp = await fetch(`${API}/api/path?olat=${alat}&olon=${alon}&dlat=${lat}&dlon=${lon}&kind=safer`);
+    r = await resp.json();
+    if (!resp.ok) throw new Error((r.detail && r.detail.error) || "route failed");
+  } catch (err) {
+    $("cambar").innerHTML = `<span class="cambar-note">no route: ${err.message} — click to start a new A</span>`;
+    return;
+  }
+  renderPath(r);
+}
+
+function renderPath(r) {
+  // segments colored by live risk; shortest-kind (no segments) draws neutral
+  const segFeats = (r.segments && r.segments.length)
+    ? r.segments.map((s) => {
+        const e = s.evidence;
+        const facts = [
+          `${e.cameras_80m.length} camera(s), ${e.cameras_active} active`,
+          e.last_person_min != null ? `person seen ${e.last_person_min} min ago` : null,
+          `${e.open_refuges_120m} open place(s) ≤120 m`,
+          e.night_unlit_penalty ? "night, not tagged lit" : (e.lit === "yes" ? "lit street" : null),
+          e.sidewalk ? `sidewalk: ${e.sidewalk}` : null,
+        ].filter(Boolean).join(" · ");
+        return {
+          type: "Feature",
+          properties: { bucket: s.risk_bucket, name: s.name, risk: s.live_risk,
+                        base: s.base_risk, facts },
+          geometry: s.geometry,
+        };
+      })
+    : [{ type: "Feature", properties: { bucket: "", name: "route", risk: "", base: "", facts: "" },
+         geometry: { type: "LineString", coordinates: r.polyline.map(([la, lo]) => [lo, la]) } }];
+  map.getSource("path-segs").setData({ type: "FeatureCollection", features: segFeats });
+
+  // open "exit route" businesses along the walk
+  map.getSource("path-exits").setData({
+    type: "FeatureCollection",
+    features: (r.refuges_en_route || []).map((p) => ({
+      type: "Feature",
+      properties: { name: p.name, until: p.open_until || "", dist: Math.round(p.dist_m) },
+      geometry: { type: "Point", coordinates: [p.lon, p.lat] },
+    })),
+  });
+
+  // en-route cameras: highlight on map + chips bar
+  PATHCAMS.clear();
+  (r.cameras_en_route || []).forEach((cid) => PATHCAMS.add(cid));
+  refreshMapData();
+  const camRecords = (r.cameras_en_route_detail || []).map((c) => byId[c.camera_id] || c);
+  fillCambar(camRecords, `path · ${r.length_m} m · ~${Math.round(r.eta_min)} min`);
+
+  // refuge panel becomes the exit-route list for this walk
+  const exits = r.refuges_en_route || [];
+  renderRefuge(`open exits along path (${exits.length})`, {
+    available: true, n_known_hours: exits.length, n_open_now: exits.length,
+    n_hours_unparsed: 0, nearest_open: exits[0] || null, pois: exits,
+  });
+
+  const buckets = { low: 0, medium: 0, high: 0 };
+  (r.segments || []).forEach((s) => buckets[s.risk_bucket]++);
+  $("cambar").insertAdjacentHTML("afterbegin",
+    `<span class="cambar-note" title="${r.risk_basis}">` +
+    `<span style="color:#7CE38B">■${buckets.low}</span> ` +
+    `<span style="color:#F6AD55">■${buckets.medium}</span> ` +
+    `<span style="color:#FC8181">■${buckets.high}</span> · ` +
+    `${r.evidence_summary} · ${r.daylight ? "daylight" : "night"}</span>`);
+}
+
+$("btn-path").onclick = () => {
+  pathMode = !pathMode;
+  $("btn-path").classList.toggle("on", pathMode);
+  if (!pathMode) clearPath();
+  else $("cambar").innerHTML = `<span class="cambar-note">PATH mode — click your start point (A)</span>`;
+};
 
 /* --------------------------------------------- my location -> coverage */
 
