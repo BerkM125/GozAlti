@@ -136,6 +136,21 @@ cv2) with `--network host` to reach ollama, and the repo is mounted **at its rea
 path** so absolute `FrameRecord.path` values resolve identically inside and out. Set
 `DATA_MOUNT` if the frame store lives outside the repo.
 
+### Illumination
+
+Every observation carries `_ext.illumination` — `mean_luma`, `dark_fraction`, `spread`,
+`bucket` — measured with cv2 in ~1 ms, not asked of the VLM. CPTED puts lighting among
+the strongest contributors to perceived safety, and safe-walk caught the VLM calling a
+2 a.m. street "daylight"; a histogram cannot.
+
+**Calibration is unfinished, and the numbers say so.** Across 35 frames spanning daylight
+and 21:47-local night, mean luma ran 82.6–150.2 and *every* frame bucketed `lit`. SDOT
+cameras auto-expose, so a dark street does not yield a dark image. The raw triple is
+trustworthy and ships regardless; `bucket` and the `poor_lighting` flag are provisional
+and fire rarely by design. The durable fix is ranking a camera against the rest of the
+sweep rather than an absolute threshold — the same argument as vehicle counts — which
+needs a sweep and therefore belongs in synthesis.
+
 ### Flag enum (§6.2 says it is defined here)
 
 `no_people` · `crowd` · `blocked_sidewalk` · `narrowed_sidewalk` · `no_sidewalk` ·

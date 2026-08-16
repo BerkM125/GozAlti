@@ -162,12 +162,25 @@ def cache_put(key, obs):
 # safe-walk found the VLM calling a 2 a.m. street "daylight", and a histogram cannot
 # hallucinate. ~1 ms on top of a 66 ms detector pass.
 #
-# Thresholds are on mean luma (BT.601, 0-255) and are deliberately coarse — they sort
-# frames into buckets a person would agree with, not a photometric measurement. A camera
-# with its own IR illuminator reads bright at night, which is correct for our purpose:
-# the question is whether a walker can see, not what time it is.
-LUMA_DARK = 45.0        # below this, the scene is genuinely dark
-LUMA_DIM = 80.0         # below this, lit but poorly
+# CALIBRATION, MEASURED: across 35 frames spanning day and 21:47-local night, mean luma
+# ran 82.6 to 150.2 and EVERY frame bucketed "lit". SDOT cameras auto-expose, so a dark
+# street does not produce a dark image — the sensor compensates with gain. Absolute luma
+# is therefore a weak proxy for "can a walker see here", and these thresholds are
+# provisional: they have never yet separated a real frame into dark or dim.
+#
+# What is trustworthy is the raw triple, which ships in _ext regardless of the bucket:
+#   mean_luma      overall exposure after the camera's own gain
+#   dark_fraction  share of frame below luma 30 — survives auto-exposure better, because
+#                  gain cannot recover detail from a genuinely black region
+#   spread         separates an evenly lit street from one streetlight against black
+#
+# The durable fix is the same one used for population and traffic: rank a camera against
+# the rest of the sweep rather than against an absolute number (see detlib.rank and
+# ../SAFETY-SIGNALS.md §3). That needs a sweep, so it belongs in synthesis, not here.
+# Until then poor_lighting fires rarely by design — a flag that never fires is better
+# than one tuned until it does.
+LUMA_DARK = 45.0        # provisional, unvalidated on this fleet
+LUMA_DIM = 80.0         # provisional, unvalidated on this fleet
 
 
 def illumination(img_path):
