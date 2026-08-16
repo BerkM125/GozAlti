@@ -18,14 +18,18 @@
 #                       and torch calls getpwuid() while resolving a cache path, which
 #                       raises KeyError: 'getpwuid(): uid not found: 1000'. Mounting the
 #                       host's passwd read-only is the whole fix.
-#   -v torchcache       detector weights are pre-downloaded there; the box has no
-#                       outbound access to torch hub during a demo
+#   TORCH_HOME=/tmp/..  the weights cache cannot live under /root once we drop to uid
+#                       1000: torch creates its parent dir and /root is not writable,
+#                       so it is mounted somewhere the user can write instead. The
+#                       weights are pre-downloaded there and the box has no outbound
+#                       access to torch hub during a demo.
 set -euo pipefail
 LAB="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 IMAGE="${IMAGE:-vllm/vllm-openai:latest}"
 exec docker run --rm --gpus all --network host \
-  --user "$(id -u):$(id -g)" -e HOME=/tmp -e TORCH_HOME=/root/.cache/torch \
+  --user "$(id -u):$(id -g)" \
+  -e HOME=/tmp -e TORCH_HOME=/tmp/torch -e XDG_CACHE_HOME=/tmp/cache \
   -v /etc/passwd:/etc/passwd:ro -v /etc/group:/etc/group:ro \
   -v "$LAB":/lab -w /lab \
-  -v /home/acer01/junk/torchcache:/root/.cache/torch \
+  -v /home/acer01/junk/torchcache:/tmp/torch \
   --entrypoint python3 "$IMAGE" "$@"
