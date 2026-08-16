@@ -38,6 +38,14 @@ _pool_lock = threading.Lock()
 _cache: dict[str, dict] = {}          # camera_id -> last result
 _cache_lock = threading.Lock()
 
+# hot-camera prefetch: fetch+inference runs in the background as soon as a
+# hot camera's frame gate opens, so API calls answer from cache in ms
+_hot: dict[str, tuple[float, dict]] = {}     # camera_id -> (last_req_mono, node)
+_hot_lock = threading.Lock()
+_inflight: dict[str, threading.Event] = {}   # camera_id -> completion event
+_inflight_lock = threading.Lock()
+_prefetcher_started = False
+
 
 def models_ready() -> bool:
     return all((config.MODELS_DIR / name).exists()
@@ -142,11 +150,47 @@ def _iso_now() -> str:
 
 def analyze_camera_cv(node: dict, force: bool = False) -> dict:
     """Full single-camera pipeline: rate-gated frame -> CNN in a worker
-    process -> mathematics layer -> cached result."""
+    process -> mathematics layer -> cached result. Marks the camera hot so
+    the prefetcher keeps its cache warm; if an analysis for this camera is
+    already in flight, waits for that instead of duplicating work."""
     cid = node["camera_id"]
     if not models_ready():
         return {"camera_id": cid, "ok": False,
                 "why": "CNN not installed — run: python -m ingest.setup_cv"}
+    with _hot_lock:
+        _hot[cid] = (time.monotonic(), node)
+    _ensure_prefetcher()
+
+    with _inflight_lock:
+        ev = _inflight.get(cid)
+    if ev is not None:
+        ev.wait(timeout=10)
+        with _cache_lock:
+            cached = _cache.get(cid)
+        if cached:
+            return {**cached, "cached": True}
+    return _analyze_inline(node, force)
+
+
+def _analyze_inline(node: dict, force: bool = False) -> dict:
+    cid = node["camera_id"]
+    with _inflight_lock:
+        if cid in _inflight:           # lost the race — serve current cache
+            with _cache_lock:
+                cached = _cache.get(cid)
+            if cached:
+                return {**cached, "cached": True}
+        ev = _inflight.setdefault(cid, threading.Event())
+    try:
+        return _analyze_locked(node, force)
+    finally:
+        with _inflight_lock:
+            _inflight.pop(cid, None)
+        ev.set()
+
+
+def _analyze_locked(node: dict, force: bool) -> dict:
+    cid = node["camera_id"]
     t0 = time.monotonic()
     blob, rec = feeds.latest_frame(node, prefer="hls")
     if blob is None or rec is None:
@@ -190,6 +234,43 @@ def analyze_camera_cv(node: dict, force: bool = False) -> dict:
     return result
 
 
+def _ensure_prefetcher() -> None:
+    global _prefetcher_started
+    if not config.CV_PREFETCH or _prefetcher_started:
+        return
+    with _hot_lock:
+        if _prefetcher_started:
+            return
+        _prefetcher_started = True
+    threading.Thread(target=_prefetch_loop, daemon=True,
+                     name="cv-prefetch").start()
+
+
+def _prefetch_loop() -> None:
+    """Keep hot cameras' results warm: the moment a hot camera's frame gate
+    opens, fetch + infer in the background. Requests then always hit cache.
+    Upstream cadence is still bounded by the same gates — this changes WHEN
+    the work happens, never HOW OFTEN."""
+    while True:
+        time.sleep(0.3)
+        now = time.monotonic()
+        with _hot_lock:
+            expired = [c for c, (ts, _) in _hot.items()
+                       if now - ts > config.CV_HOT_TTL_S]
+            for c in expired:
+                _hot.pop(c, None)
+            items = [(c, node) for c, (ts, node) in _hot.items()]
+        for cid, node in items:
+            key, interval = feeds.frame_gate_key(node)
+            if feeds.gate_remaining(key, interval) > 0:
+                continue        # no new frame possible yet — stay idle
+            with _inflight_lock:
+                if cid in _inflight:
+                    continue
+            threading.Thread(target=_analyze_inline, args=(node,),
+                             daemon=True).start()
+
+
 def analyze_point_cv(g, lat: float, lon: float,
                      radius_m: float = 150.0) -> dict:
     """lat/lon -> cameras -> frames in parallel (rate gates hold) -> CNN
@@ -213,11 +294,15 @@ def analyze_point_cv(g, lat: float, lon: float,
 
 
 def status() -> dict:
+    with _hot_lock:
+        hot = sorted(_hot.keys())
     return {
         "models_ready": models_ready(),
         "model": "yolov4-tiny (opencv-dnn, fully local)",
         "workers": config.CV_WORKERS,
         "classes": sorted(KEEP_CLASSES.values()),
         "input_size": config.CV_INPUT_SIZE,
+        "prefetch": config.CV_PREFETCH,
+        "hot_cameras": hot,
         "install": "python -m ingest.setup_cv" if not models_ready() else None,
     }

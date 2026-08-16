@@ -53,7 +53,7 @@ building footprints, live frames and clips.
 | Capability | Upstream | Discipline (hard-coded) |
 |---|---|---|
 | Fresh snapshot per camera | SDOT | ≥ 60 s per camera (`SNAPSHOT_MIN_INTERVAL_S`), ≤ 4 concurrent, descriptive User-Agent |
-| Live HLS video / newest TS segment frames | Wowza (`streamlock.net`) | ≥ 10 s per camera (`HLS_MIN_INTERVAL_S`); playlist reads can transiently time out → falls back to snapshot/disk cache by design |
+| Live HLS video / newest TS segment frames | Wowza (`streamlock.net`) | ≥ 6 s per camera (`HLS_MIN_INTERVAL_S`) — one segment per 6 s is lighter than a single live viewer, who downloads every ~2–4 s segment; chunklist URL cached per stream (one round trip per pull); playlist reads can transiently time out → falls back to snapshot/disk cache by design |
 | First-time map tile / satellite tile / satellite crop | Carto / Esri | cached forever after first fetch |
 | First-time building footprints for a bbox | Overpass | cached per rounded bbox; bbox size capped |
 | VLM reads (`/api/analyze`, `/api/read`, sweep) | `:8040` on this same box | **local network, not internet**; `VLM_CONCURRENCY` cap |
@@ -136,7 +136,7 @@ test) — after that inference needs zero network.
 | Endpoint | What it does |
 |---|---|
 | `GET /api/cv/status` | models ready? worker count, classes (person/bicycle/motorbike/car/bus/truck) |
-| `GET /api/cv/camera/{cid}?force=` | **single-camera pipeline**: rate-gated freshest frame → CNN worker → math layer. ~0.3–0.9 s warm. Results are **cached per frame timestamp** — polling faster than new frames arrive returns `cached: true` instantly with *zero* upstream requests, so a 1 s UI loop is rate-limit-proof by construction |
+| `GET /api/cv/camera/{cid}?force=` | **single-camera pipeline**: rate-gated freshest frame → CNN worker → math layer. Calling it marks the camera **hot**: a background prefetcher then re-runs fetch+inference the moment the frame gate opens (and stops 30 s after the last request), so polls answer from warm cache in ~10–30 ms. Measured under a 1 s poll loop: upstream segment pulls stay exactly at the 6 s gate. Cached responses carry `cached: true`; concurrent calls dedupe onto one in-flight analysis |
 | `GET /api/cv/point?lat=&lon=&radius_m=150` | **parallel multi-camera pipeline**: point → cameras that see it (≤`CV_MAX_POINT_CAMERAS`) → frames fetched in parallel (≤4 upstream, gates hold) → simultaneous forward passes in the worker pool → merged world-positioned detections. Measured: 3 cameras end-to-end in <1 s wall-clock |
 
 Detection shape: `{label, conf, box:[x1,y1,x2,y2] normalized, est:{lat, lon,

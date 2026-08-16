@@ -99,6 +99,23 @@ def _gate(camera_id: str, min_interval: float) -> bool:
         return True
 
 
+def gate_remaining(camera_id: str, min_interval: float) -> float:
+    """Seconds until the gate would allow an upstream fetch (0 = open now).
+    Read-only — lets the CV prefetcher idle instead of spinning on cache."""
+    with _LAST_FETCH_LOCK:
+        last = _LAST_FETCH.get(camera_id)
+    if last is None:
+        return 0.0
+    return max(0.0, min_interval - (time.monotonic() - last))
+
+
+def frame_gate_key(node: dict) -> tuple[str, float]:
+    """(gate key, interval) the latest_frame path will use for this node."""
+    if node.get("has_stream"):
+        return f"hls:{node['camera_id']}", config.HLS_MIN_INTERVAL_S
+    return node["camera_id"], config.SNAPSHOT_MIN_INTERVAL_S
+
+
 def _cached_latest_path(camera_id: str) -> Path | None:
     d = config.FRAMES / camera_id
     if not d.exists():
@@ -194,9 +211,31 @@ def snapshot_frame(node: dict, force: bool = False) -> tuple[bytes | None, dict 
 # --------------------------------------------------------------------- HLS
 
 _URI_RE = re.compile(r"^[^#\s].*$", re.MULTILINE)
+_CHUNKLIST: dict[str, str] = {}   # camera_id -> resolved chunklist URL
+_CHUNKLIST_LOCK = threading.Lock()
 
 
-def _hls_newest_segment_url(hls_url: str) -> str | None:
+def _newest_seg_from_chunklist(chunklist_url: str) -> str | None:
+    r = client().get(chunklist_url, timeout=8)
+    if r.status_code != 200 or b"#EXTM3U" not in r.content[:64]:
+        return None
+    segs = [l for l in _URI_RE.findall(r.text) if not l.endswith(".m3u8")]
+    return urljoin(chunklist_url, segs[-1]) if segs else None
+
+
+def _hls_newest_segment_url(hls_url: str, cache_key: str | None = None) -> str | None:
+    # fast path: the master->chunklist mapping is stable per stream, so a
+    # cached chunklist URL saves one upstream round trip per pull
+    if cache_key:
+        with _CHUNKLIST_LOCK:
+            known = _CHUNKLIST.get(cache_key)
+        if known:
+            seg = _newest_seg_from_chunklist(known)
+            if seg:
+                return seg
+            with _CHUNKLIST_LOCK:      # stream restarted — rediscover
+                _CHUNKLIST.pop(cache_key, None)
+
     r = client().get(hls_url, timeout=10)
     if r.status_code != 200 or b"#EXTM3U" not in r.content[:64]:
         return None
@@ -205,13 +244,10 @@ def _hls_newest_segment_url(hls_url: str) -> str | None:
         return None
     target = urljoin(hls_url, lines[-1])
     if target.endswith(".m3u8"):  # master playlist -> chunklist
-        r2 = client().get(target, timeout=10)
-        if r2.status_code != 200:
-            return None
-        segs = [l for l in _URI_RE.findall(r2.text) if not l.endswith(".m3u8")]
-        if not segs:
-            return None
-        target = urljoin(target, segs[-1])
+        if cache_key:
+            with _CHUNKLIST_LOCK:
+                _CHUNKLIST[cache_key] = target
+        return _newest_seg_from_chunklist(target)
     return target
 
 
@@ -226,7 +262,7 @@ def hls_frame(node: dict) -> tuple[bytes | None, dict | None]:
         return (p.read_bytes(), latest_record(cid)) if p else (None, None)
     try:
         with _FETCH_SEM:
-            seg_url = _hls_newest_segment_url(node["hls_url"])
+            seg_url = _hls_newest_segment_url(node["hls_url"], cache_key=cid)
             if not seg_url:
                 return None, None
             seg = client().get(seg_url, timeout=15)
@@ -242,11 +278,16 @@ def hls_frame(node: dict) -> tuple[bytes | None, dict | None]:
 
         cap = cv2.VideoCapture(str(seg_path))
         frame = None
-        while True:
+        if config.HLS_FRAME_PICK == "first":
+            # decode a single frame — cuts ~100-300 ms vs draining the segment
             ok, f = cap.read()
-            if not ok:
-                break
-            frame = f
+            frame = f if ok else None
+        else:
+            while True:
+                ok, f = cap.read()
+                if not ok:
+                    break
+                frame = f
         cap.release()
         if frame is None:
             return None, None

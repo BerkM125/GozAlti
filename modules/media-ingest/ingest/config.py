@@ -32,7 +32,11 @@ SURU_STREETS = SURU_DATA / "streets.json"
 
 # --- rate discipline (SPEC §7.5 — non-negotiable) -------------------------
 SNAPSHOT_MIN_INTERVAL_S = float(os.getenv("SNAPSHOT_MIN_INTERVAL_S", "60"))
-HLS_MIN_INTERVAL_S = float(os.getenv("HLS_MIN_INTERVAL_S", "10"))
+# one TS segment per 6 s per camera is still lighter than a single live HLS
+# viewer (who downloads EVERY ~2-4 s segment continuously)
+HLS_MIN_INTERVAL_S = float(os.getenv("HLS_MIN_INTERVAL_S", "6"))
+# "first" = decode only the segment's first frame (fastest); "last" = freshest
+HLS_FRAME_PICK = os.getenv("HLS_FRAME_PICK", "first")
 FETCH_CONCURRENCY = int(os.getenv("FETCH_CONCURRENCY", "4"))   # upstream cap
 FETCH_TIMEOUT = float(os.getenv("FETCH_TIMEOUT", "15"))
 USER_AGENT = os.getenv(
@@ -92,6 +96,11 @@ CV_NMS_THRESHOLD = float(os.getenv("CV_NMS_THRESHOLD", "0.45"))
 CV_MAX_POINT_CAMERAS = int(os.getenv("CV_MAX_POINT_CAMERAS", "6"))
 CV_RANGE_MIN_M = float(os.getenv("CV_RANGE_MIN_M", "3"))
 CV_RANGE_MAX_M = float(os.getenv("CV_RANGE_MAX_M", "250"))
+# background prefetch: cameras requested via /api/cv/camera in the last
+# CV_HOT_TTL_S get proactive fetch+inference as soon as their frame gate
+# opens, so API responses come from cache in milliseconds
+CV_PREFETCH = os.getenv("CV_PREFETCH", "1") not in ("0", "false", "no")
+CV_HOT_TTL_S = float(os.getenv("CV_HOT_TTL_S", "30"))
 # YOLOv4-tiny (AlexeyAB darknet, free/open) — downloaded by ingest.setup_cv
 CV_MODEL_FILES = {
     "yolov4-tiny.cfg":
