@@ -49,6 +49,17 @@ def ask(model, prompt, image, json_mode, max_tokens, think=False):
         out["_note"] = "response empty; showing thinking — pass --think or the model ignored think=false"
     return text, round(time.time() - t0, 2), out
 
+def convention(model):
+    """How a model family writes coordinates. Verified on real frames (see NOTES.md):
+      qwen2.5vl  -> [x1,y1,x2,y2] in pixels of the image it saw   (send --edge 1456 so that == our file)
+      qwen3-vl   -> [x1,y1,x2,y2] on a 0..1000 grid
+      gemma*     -> [y_min,x_min,y_max,x_max] on a 0..1000 grid  (PaliGemma/Gemma convention; points [y,x])
+    Anything ≤1 is treated as a fraction of width/height regardless."""
+    m = model.lower()
+    if "gemma" in m or "paligemma" in m: return {"order": "yxyx", "scale": 1000}
+    if "qwen3" in m:                     return {"order": "xyxy", "scale": 1000}
+    return {"order": "xyxy", "scale": "px"}
+
 def draw(image, text, model, outdir):
     """If the reply is JSON with people (bbox_2d or point_2d), draw boxes and/or a dot per person."""
     try:
@@ -61,22 +72,25 @@ def draw(image, text, model, outdir):
         return None
     items = data.get("people") or data.get("objects") or data.get("detections") or []
     im = Image.open(image).convert("RGB"); W, H = im.size; d = ImageDraw.Draw(im); n = 0
-    norm1000 = "qwen3" in model  # qwen3-vl grounds on a 0..1000 grid; qwen2.5vl in pixels
+    conv = convention(model)
     for it in items:
         if not isinstance(it, dict):
             it = {"point_2d": it} if isinstance(it, list) else {}
         bb = it.get("bbox_2d") or it.get("bbox") or it.get("box")
         pt = it.get("point_2d") or it.get("point")
         if isinstance(bb, list) and len(bb) == 4:
-            x1, y1, x2, y2 = map(float, bb)
-            if max(bb) <= 1: x1, x2, y1, y2 = x1*W, x2*W, y1*H, y2*H
-            elif norm1000:  x1, x2, y1, y2 = x1/1000*W, x2/1000*W, y1/1000*H, y2/1000*H
+            a, b, c, e = map(float, bb)
+            if conv["order"] == "yxyx": y1, x1, y2, x2 = a, b, c, e
+            else:                       x1, y1, x2, y2 = a, b, c, e
+            if max(bb) <= 1:            x1, x2, y1, y2 = x1*W, x2*W, y1*H, y2*H
+            elif conv["scale"] == 1000: x1, x2, y1, y2 = x1/1000*W, x2/1000*W, y1/1000*H, y2/1000*H
             d.rectangle([x1, y1, x2, y2], outline=(242,169,59), width=2)
             cx, cy = (x1+x2)/2, (y1+y2)/2
         elif isinstance(pt, list) and len(pt) == 2:
-            cx, cy = map(float, pt)
-            if max(pt) <= 1: cx, cy = cx*W, cy*H
-            elif norm1000:  cx, cy = cx/1000*W, cy/1000*H
+            a, b = map(float, pt)
+            cx, cy = (b, a) if conv["order"] == "yxyx" else (a, b)
+            if max(pt) <= 1:            cx, cy = cx*W, cy*H
+            elif conv["scale"] == 1000: cx, cy = cx/1000*W, cy/1000*H
         else:
             continue
         d.ellipse([cx-6, cy-6, cx+6, cy+6], fill=(232,68,58), outline="white", width=2); n += 1
