@@ -43,7 +43,7 @@ def ask(model, prompt, image, json_mode, max_tokens):
     return out.get("response", ""), round(time.time() - t0, 2), out
 
 def draw(image, text, model, outdir):
-    """If the reply is JSON with people/bbox_2d, draw boxes + a dot per person."""
+    """If the reply is JSON with people (bbox_2d or point_2d), draw boxes and/or a dot per person."""
     try:
         from PIL import Image, ImageDraw
     except ImportError:
@@ -56,18 +56,27 @@ def draw(image, text, model, outdir):
     im = Image.open(image).convert("RGB"); W, H = im.size; d = ImageDraw.Draw(im); n = 0
     norm1000 = "qwen3" in model  # qwen3-vl grounds on a 0..1000 grid; qwen2.5vl in pixels
     for it in items:
+        if not isinstance(it, dict):
+            it = {"point_2d": it} if isinstance(it, list) else {}
         bb = it.get("bbox_2d") or it.get("bbox") or it.get("box")
-        if not (isinstance(bb, list) and len(bb) == 4): continue
-        x1, y1, x2, y2 = map(float, bb)
-        if max(bb) <= 1: x1, x2, y1, y2 = x1*W, x2*W, y1*H, y2*H
-        elif norm1000:  x1, x2, y1, y2 = x1/1000*W, x2/1000*W, y1/1000*H, y2/1000*H
-        d.rectangle([x1, y1, x2, y2], outline=(242,169,59), width=2)
-        cx, cy = (x1+x2)/2, (y1+y2)/2
+        pt = it.get("point_2d") or it.get("point")
+        if isinstance(bb, list) and len(bb) == 4:
+            x1, y1, x2, y2 = map(float, bb)
+            if max(bb) <= 1: x1, x2, y1, y2 = x1*W, x2*W, y1*H, y2*H
+            elif norm1000:  x1, x2, y1, y2 = x1/1000*W, x2/1000*W, y1/1000*H, y2/1000*H
+            d.rectangle([x1, y1, x2, y2], outline=(242,169,59), width=2)
+            cx, cy = (x1+x2)/2, (y1+y2)/2
+        elif isinstance(pt, list) and len(pt) == 2:
+            cx, cy = map(float, pt)
+            if max(pt) <= 1: cx, cy = cx*W, cy*H
+            elif norm1000:  cx, cy = cx/1000*W, cy/1000*H
+        else:
+            continue
         d.ellipse([cx-6, cy-6, cx+6, cy+6], fill=(232,68,58), outline="white", width=2); n += 1
     outdir.mkdir(exist_ok=True)
     out = outdir / f"{Path(image).stem}__{model.replace(':','-')}.jpg"
     im.save(out, quality=88)
-    return f"{out} ({n} boxes)"
+    return f"{out} ({n} people marked)"
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
