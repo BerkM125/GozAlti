@@ -41,6 +41,8 @@ type Props = {
   routeCamIds: Set<string>;
   /** Open businesses along the path — the "exit route" dots. */
   refuges: PathRefuge[];
+  /** Local-CNN cars/people as composed extrusion meshes (demo-ui row 7). */
+  cvObjects: FeatureCollection;
   detections: { camera: Camera; detection: Detection }[];
   selectedSegment: string | null;
   selectedCamera: string | null;
@@ -70,6 +72,7 @@ export default function MapView({
   cameras,
   routeCamIds,
   refuges,
+  cvObjects,
   detections,
   selectedSegment,
   selectedCamera,
@@ -269,6 +272,23 @@ export default function MapView({
         paint: { "line-color": "#000", "line-width": 30, "line-opacity": 0 },
       });
 
+      // Local-CNN cars/people as composed extrusion meshes. Added last;
+      // extrusions depth-test against building-3d, so order vs buildings is
+      // irrelevant, and being above the line layers keeps objects tappable
+      // territory clear of the route strokes.
+      m.addSource("cv-objects", { type: "geojson", data: EMPTY });
+      m.addLayer({
+        id: "cv-objects",
+        type: "fill-extrusion",
+        source: "cv-objects",
+        paint: {
+          "fill-extrusion-color": ["get", "color"],
+          "fill-extrusion-base": ["get", "base"],
+          "fill-extrusion-height": ["get", "height"],
+          "fill-extrusion-opacity": 0.95,
+        },
+      });
+
       // Click handlers fire in registration order, which is the precedence:
       // a route segment first, then any block, then the bare-map tap.
       m.on("click", "segment-hit", (e) => {
@@ -360,21 +380,33 @@ export default function MapView({
   }, [layer]);
 
   // -- routes --------------------------------------------------------------
+  // A live version bump replaces the PathObject every few seconds; only a NEW
+  // trip may move the camera, or the map yanks mid-walk on every re-route.
+  const fittedTrip = useRef<string | null>(null);
   useEffect(() => {
     whenReady((m) => {
       paintRoutes(m, result, path);
       // With a route up, the weights recede to context so the route pops.
       // MapLibre's default 300ms paint transition animates the change.
       m.setPaintProperty("blocks-heat", "line-opacity", result || path ? 0.3 : 0.85);
-      if (result || path) {
+      const trip = path ? path.safer.path_id : result ? "local" : null;
+      if ((result || path) && trip !== fittedTrip.current) {
         m.fitBounds(routeBounds(result, path), {
           ...FIT_PADDING,
           duration: 700,
           pitch: view === "3D" ? PITCH_3D : PITCH_2D,
         });
       }
+      fittedTrip.current = trip;
     });
   }, [result, path]);
+
+  // -- CV objects ----------------------------------------------------------
+  useEffect(() => {
+    whenReady((m) => {
+      (m.getSource("cv-objects") as maplibregl.GeoJSONSource | undefined)?.setData(cvObjects);
+    });
+  }, [cvObjects]);
 
   // -- centre on the walker, once ------------------------------------------
   // Only the first fix moves the camera. Re-centring on every update would

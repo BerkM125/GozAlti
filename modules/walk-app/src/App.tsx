@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { FeatureCollection } from "geojson";
 import MapView from "./components/MapView.tsx";
 import { CameraIcon, ChevronUpIcon, LayersIcon, PeopleIcon } from "./components/icons.tsx";
 import {
@@ -11,6 +12,7 @@ import {
 import { CameraSheet } from "./components/CameraSheet.tsx";
 import SearchBar, { type Field } from "./components/SearchBar.tsx";
 import {
+  fetchCameraCv,
   fetchCameras,
   fetchDetections,
   fetchFrameRecord,
@@ -21,6 +23,7 @@ import {
   health,
   RouteError,
 } from "./api.ts";
+import { cvResultFeatures, placedCount, type CvFeature } from "./cvObjects.ts";
 import {
   CENTER,
   NEARBY_CAMERA_LIMIT,
@@ -32,6 +35,7 @@ import {
   isObservation,
   isUnavailable,
   type Camera,
+  type CvResult,
   type FrameRecord,
   type LngLat,
   type Observation,
@@ -46,6 +50,8 @@ type MapLayer = "weights" | "plain";
 type Panel = "cameras" | "nearby" | null;
 
 const minutes = (m: number) => Math.max(1, Math.round(m / WALK_M_PER_MIN));
+
+const EMPTY_FC: FeatureCollection = { type: "FeatureCollection", features: [] };
 
 /** Metres between two lon/lat points. */
 function dist(a: LngLat, b: LngLat): number {
@@ -105,6 +111,29 @@ export default function App() {
   const [cameraError, setCameraError] = useState<string | null>(null);
   const [observations, setObservations] = useState<Map<string, Observation>>(new Map());
   const [records, setRecords] = useState<Map<string, FrameRecord>>(new Map());
+
+  // -- local-CNN 3D objects (demo-ui row 7) --------------------------------
+  // One store keyed by camera id, upsert-only: each camera's meshes are
+  // replaced when its fresh result lands, and nothing is bulk-wiped while a
+  // route is up, so already-rendered cars/people never blink out between
+  // passes. Cleared only when the trip itself is cleared.
+  const cvStore = useRef<Record<string, CvFeature[]>>({});
+  const [cvObjects, setCvObjects] = useState<FeatureCollection>(EMPTY_FC);
+  const ingestCv = useCallback((res: CvResult) => {
+    if (!res?.ok || !res.camera_id) return;
+    cvStore.current[res.camera_id] = cvResultFeatures(res);
+    setCvObjects({
+      type: "FeatureCollection",
+      features: Object.values(cvStore.current).flat(),
+    });
+  }, []);
+  /** Bumping this cancels any in-flight en-route CV pass. */
+  const cvPassToken = useRef(0);
+  const clearCv = useCallback(() => {
+    cvPassToken.current += 1;
+    cvStore.current = {};
+    setCvObjects(EMPTY_FC);
+  }, []);
 
   const [panel, setPanel] = useState<Panel>(null);
   const [selectedSegment, setSelectedSegment] = useState<string | null>(null);
@@ -198,6 +227,81 @@ export default function App() {
       cancelled = true;
     };
   }, [origin, dest]);
+
+  // -- CV feed 1: cached results shipped WITH the path ---------------------
+  // Renders instantly (age is honest via each result's frame_ts) and re-runs
+  // on every live version bump, since the session refreshes corridor CV.
+  useEffect(() => {
+    if (!pathPair) return;
+    Object.values(pathPair.safer.cv_detections ?? {}).forEach(ingestCv);
+  }, [pathPair, ingestCv]);
+
+  // -- CV feed 2: one HQ still pass per NEW trip ---------------------------
+  // Exactly one detlib call per en-route camera, at most 4 in flight, run
+  // once per path_id and not per version bump (the PathLiveSession keeps
+  // corridor CV fresh on its own). detlib down => one plain retry, which
+  // serves the yolo/cache lane instead of nothing.
+  const stillPassPathId = pathPair?.safer.path_id ?? null;
+  useEffect(() => {
+    if (!stillPassPathId || !pathPair) return;
+    const token = ++cvPassToken.current;
+    const queue = [...pathPair.safer.cameras_en_route];
+    if (queue.length === 0) return;
+    const worker = async () => {
+      while (queue.length > 0 && cvPassToken.current === token) {
+        const cid = queue.shift()!;
+        let res = await fetchCameraCv(cid, { backend: "detlib", force: true });
+        if (cvPassToken.current !== token) return;
+        if (isUnavailable(res) || !res.ok) {
+          const retry = await fetchCameraCv(cid);
+          if (cvPassToken.current !== token || isUnavailable(retry)) continue;
+          res = retry;
+        }
+        if (!isUnavailable(res)) ingestCv(res);
+      }
+    };
+    for (let i = 0; i < Math.min(4, queue.length); i++) void worker();
+    // Cancellation is the token bump in clearCv; no cleanup here because a
+    // version bump must NOT abort a pass that is still working through the
+    // same trip's cameras.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stillPassPathId]);
+
+  // -- CV feed 3: the opened camera, polled fast ---------------------------
+  // The plain fast lane answers from media-ingest's cache in ms and never
+  // triggers an upstream fetch, so 350 ms polling is rate-limit-proof; the
+  // scene only rebuilds when the frame actually changed. The first time a
+  // detection is actually placed, tilt to 3D once so the meshes read as 3D
+  // (ref-guarded: the user's own toggle wins afterwards).
+  const autoTilted = useRef(false);
+  useEffect(() => {
+    if (!selectedCamera) return;
+    let active = true;
+    let lastFrame: CvResult["frame_ts"] | undefined;
+    const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+    (async () => {
+      while (active) {
+        const res = await fetchCameraCv(selectedCamera);
+        if (!active) return;
+        if (isUnavailable(res) || !res.ok) {
+          await sleep(2000); // service hiccup - back off a little extra
+          continue;
+        }
+        if (res.frame_ts !== lastFrame) {
+          lastFrame = res.frame_ts;
+          ingestCv(res);
+          if (placedCount(res) > 0 && !autoTilted.current) {
+            autoTilted.current = true;
+            setView((v) => (v === "2D" ? "3D" : v));
+          }
+        }
+        await sleep(350);
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, [selectedCamera, ingestCv]);
 
   // -- cameras: the whole route when there is one, else around you ---------
   // A route is a line, so asking for cameras "near" a single point on it would
@@ -415,8 +519,9 @@ export default function App() {
       setResult(null);
       setSelectedSegment(null);
       setRouteError(null);
+      clearCv();
     }
-  }, [origin, dest]);
+  }, [origin, dest, clearCv]);
 
   const reset = () => {
     setTrip({ origin: null, dest: null });
@@ -425,6 +530,7 @@ export default function App() {
     setResult(null);
     setSelectedSegment(null);
     setRouteError(null);
+    clearCv();
   };
 
   /** Opening a camera closes the list, so only one sheet is ever up. */
@@ -495,6 +601,7 @@ export default function App() {
         cameras={cameras}
         routeCamIds={routeCamIds}
         refuges={pathPair?.safer.refuges_en_route ?? []}
+        cvObjects={cvObjects}
         detections={mapDetections}
         selectedSegment={selectedSegment}
         selectedCamera={selectedCamera}
