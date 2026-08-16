@@ -23,7 +23,7 @@ final class DialogueClient: ObservableObject {
     @Published var turns: [[String: Any]] = []
 
     /// Your laptop on the LAN. Override in the UI — the phone cannot reach "localhost".
-    @Published var baseURL = "http://192.168.1.10:8050"
+    @Published var baseURL = "http://172.16.95.111:8050"
     private var sessionID: String?
 
     var awaitingAnswer: Bool { state == "asked_wellbeing" || state == "asked_escalate" }

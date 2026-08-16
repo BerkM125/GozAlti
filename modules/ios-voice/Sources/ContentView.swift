@@ -9,7 +9,7 @@ struct ContentView: View {
     @StateObject private var speech = Speech()
     @StateObject private var dlg = DialogueClient()
     @State private var status = "Set your laptop's address, then press a trigger."
-    @AppStorage("baseURL") private var savedURL = "http://192.168.1.10:8050"
+    @AppStorage("baseURL") private var savedURL = "http://172.16.95.111:8050"
     @AppStorage("contact") private var savedContact = "Dhruv"
     @AppStorage("number") private var savedNumber = ""
 
