@@ -80,6 +80,7 @@ curl -o f.jpg "localhost:8030/api/frame/CMR-0270/latest.jpg"
 #    concurrent writers clobber each other. Both cache their Overpass pulls.
 python -m ingest.refuge      # OSM POIs with opening_hours (~4.2k, one pull)
 python -m ingest.statics     # alleys/crossings/sidewalk/lit/camera spacing
+python -m ingest.setup_cv    # local CNN: pip deps + YOLOv4-tiny (~24MB) + smoke test
 
 # 4. (optional) orientation precompute — sun layers always run; the
 #    satellite<->frame VLM reconciliation needs VLM_BASE_URL or ANTHROPIC_API_KEY

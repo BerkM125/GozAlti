@@ -82,6 +82,27 @@ ASSUMED_FOV_DEG = float(os.getenv("ASSUMED_FOV_DEG", "60"))
 NEAR_RANGE_M = float(os.getenv("NEAR_RANGE_M", "8"))
 FAR_RANGE_M = float(os.getenv("FAR_RANGE_M", "120"))
 
+# --- local OpenCV CNN layer (runs entirely on this box / the Spark) -------
+MODELS_DIR = DATA / "models"
+MODELS_DIR.mkdir(parents=True, exist_ok=True)
+CV_WORKERS = int(os.getenv("CV_WORKERS", str(min(4, (os.cpu_count() or 4)))))
+CV_INPUT_SIZE = int(os.getenv("CV_INPUT_SIZE", "416"))       # yolov4-tiny native
+CV_CONF_THRESHOLD = float(os.getenv("CV_CONF_THRESHOLD", "0.35"))
+CV_NMS_THRESHOLD = float(os.getenv("CV_NMS_THRESHOLD", "0.45"))
+CV_MAX_POINT_CAMERAS = int(os.getenv("CV_MAX_POINT_CAMERAS", "6"))
+CV_RANGE_MIN_M = float(os.getenv("CV_RANGE_MIN_M", "3"))
+CV_RANGE_MAX_M = float(os.getenv("CV_RANGE_MAX_M", "250"))
+# YOLOv4-tiny (AlexeyAB darknet, free/open) — downloaded by ingest.setup_cv
+CV_MODEL_FILES = {
+    "yolov4-tiny.cfg":
+        "https://raw.githubusercontent.com/AlexeyAB/darknet/master/cfg/yolov4-tiny.cfg",
+    "yolov4-tiny.weights":
+        "https://github.com/AlexeyAB/darknet/releases/download/"
+        "darknet_yolo_v4_pre/yolov4-tiny.weights",
+    "coco.names":
+        "https://raw.githubusercontent.com/AlexeyAB/darknet/master/data/coco.names",
+}
+
 # --- retention ------------------------------------------------------------
 KEEP_RECENT_PER_CAM = int(os.getenv("KEEP_RECENT_PER_CAM", "12"))
 

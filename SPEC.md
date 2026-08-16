@@ -248,6 +248,15 @@ risks upstream rate-limit bans (§7.5). Full endpoint + artifact reference:
   cached tiles/satellite/building footprints, and
   **`GET /api/context/{cid}` — everything known about one camera in a single
   document, the first stop when assembling VLM context.**
+- **Local CNN detection (no VLM, no internet at inference time)**:
+  `GET /api/cv/camera/{cid}` and `GET /api/cv/point?lat=&lon=` run
+  YOLOv4-tiny in parallel local worker processes on the freshest frames and
+  return cars/people with estimated lat/lon world positions
+  (`pos_conf` + basis attached; per-frame result cache makes polling
+  rate-limit-proof). One-time install on any box:
+  **`python -m ingest.setup_cv`** (pip deps + ~24 MB open-source model +
+  smoke test). Use this for cheap what-lies-ahead object context;
+  safety interpretation still belongs to vlm/synthesis.
 - **Online but rate-gate-owned by media-ingest**: fresh snapshots
   (`/api/frame/{cid}/latest.jpg`), live HLS proxy (`/api/hls/{key}/…`).
   **No other module talks to SDOT/Wowza/Overpass/Esri directly.**
@@ -256,9 +265,10 @@ risks upstream rate-limit bans (§7.5). Full endpoint + artifact reference:
   `prior_observations` as a sibling key next to the untouched §6.1 record —
   pending vlm-owner confirmation), `SYNTH_OBS_URL` (auto-forward of
   Observations to synthesis).
-- Fresh clone / Spark setup: `data/` artifacts are gitignored — run the three
+- Fresh clone / Spark setup: `data/` artifacts are gitignored — run the
   one-time builders in the README (graph build needs no network; refuge +
-  statics each cache a single Overpass pull).
+  statics each cache a single Overpass pull; `ingest.setup_cv` installs the
+  local CNN once).
 
 ## 7. Engineering practices (all modules, all sessions)
 

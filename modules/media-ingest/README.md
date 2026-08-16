@@ -45,6 +45,7 @@ building footprints, live frames and clips.
 | Last detections per camera (what the sweep last saw) | memory + `data/live_state.json` | `/api/detections` |
 | Observation breadcrumbs (last ≤3 VLM Observations per camera, verbatim) | memory + `data/observations/*.jsonl` | `/api/observations/{cid}` |
 | Cached frames / clips already fetched | `data/frames/`, `data/segments/` | `/api/frame/{cid}/latest.jpg` serves cache when upstream is gated/down |
+| **Local CNN inference** — cars + people detection with world positions, no external service | `data/models/` (YOLOv4-tiny, ~24 MB, one-time download) | `/api/cv/*` — forward passes run in local worker processes; only the *frame fetch* is online (rate-gated as always) |
 | Cached map tiles, satellite tiles, satellite crops, building footprints | `data/tiles/`, `data/sat_tiles/`, `data/satellite/` | served from cache after first fetch |
 
 ### 1.2 ONLINE — upstream fetches (rate-gated; only this module does them)
@@ -65,6 +66,7 @@ Run with the service **stopped** (both writer paths touch `camera_graph.json`):
 python -m ingest.graph      # NO internet — builds from shipped experiments/surukamera/data/
 python -m ingest.refuge     # ONE Overpass pull  -> data/refuge_pois.json
 python -m ingest.statics    # ONE Overpass pull  -> data/osm_alleys.json + street_context on nodes
+python -m ingest.setup_cv   # pip deps + ONE model download (~24 MB) + smoke test -> local CNN ready
 python -m ingest.orientation --limit 25   # optional; sun layers offline, sat-VLM layer needs a VLM
 ```
 
@@ -121,7 +123,32 @@ All responses JSON unless noted. Every enrichment field carries its
 | `POST /api/priority {"camera_ids": [...]}` | mark hot-lane cameras (en-route) — processed first every pass |
 | `POST /api/sweep/start` / `/api/sweep/stop`, `GET /api/sweep/status` | BFS traversal loop over all cameras, 10 s rest between passes; activity flag drives the hot/slow lanes; **runs with no VLM backend too** (fetch-only passes keep activity flags fresh) |
 
-### 2.5 Orientation & imagery
+### 2.5 Local OpenCV CNN — cars + people with world positions (no VLM, no internet)
+
+**Fully local object detection**: YOLOv4-tiny through `cv2.dnn` in a pool of
+worker **processes** (`CV_WORKERS`, GIL-free parallel inference, net loaded
+once per worker and kept warm), then a mathematics layer that converts pixel
+boxes into lat/lon estimates using the camera's resolved bearing, an assumed
+FOV, and known-height pinhole ranging. One-time install:
+**`python -m ingest.setup_cv`** (pip deps + ~24 MB model download + smoke
+test) — after that inference needs zero network.
+
+| Endpoint | What it does |
+|---|---|
+| `GET /api/cv/status` | models ready? worker count, classes (person/bicycle/motorbike/car/bus/truck) |
+| `GET /api/cv/camera/{cid}?force=` | **single-camera pipeline**: rate-gated freshest frame → CNN worker → math layer. ~0.3–0.9 s warm. Results are **cached per frame timestamp** — polling faster than new frames arrive returns `cached: true` instantly with *zero* upstream requests, so a 1 s UI loop is rate-limit-proof by construction |
+| `GET /api/cv/point?lat=&lon=&radius_m=150` | **parallel multi-camera pipeline**: point → cameras that see it (≤`CV_MAX_POINT_CAMERAS`) → frames fetched in parallel (≤4 upstream, gates hold) → simultaneous forward passes in the worker pool → merged world-positioned detections. Measured: 3 cameras end-to-end in <1 s wall-clock |
+
+Detection shape: `{label, conf, box:[x1,y1,x2,y2] normalized, est:{lat, lon,
+bearing_deg, range_m, pos_conf, method:"pinhole-height", bearing_basis,
+range_clamped}, footprint_m:[len,wid,height]}` — `footprint_m` is for 3D box
+rendering. Honesty: positions are monocular estimates; `pos_conf` multiplies
+bearing confidence × detection confidence; an uncalibrated camera yields
+`bearing_basis:"axis-only-unresolved"` with a discounted `pos_conf`, and a
+camera with no direction data at all yields `est: null`, never a guess.
+Person hits also update the node's `copresence` (`source:"cv-local"`).
+
+### 2.6 Orientation & imagery
 
 | Endpoint | What it does |
 |---|---|
@@ -145,6 +172,7 @@ All under `modules/media-ingest/data/` (gitignored, rebuildable):
 | `osm_alleys.json` | ~9.7 MB | alley centerlines + pedestrian crossings cache for statics | `python -m ingest.statics` | Once |
 | `manual_bearings.json` | tiny | human-confirmed bearings | calibration UI | No |
 | `satellite_vlm.json` | tiny | cached sat↔frame VLM verdicts | orientation precompute | via VLM |
+| `models/` | ~24 MB | YOLOv4-tiny cfg/weights/names for the local CNN | `python -m ingest.setup_cv` | Once |
 | `frame_records.jsonl` / `live_state.json` / `observations/*.jsonl` | grows | FrameRecord log, last detections, Observation breadcrumbs | service runtime | — |
 | `frames/` `segments/` `satellite/` `tiles/` `sat_tiles/` | grows | JPEG frames, raw TS segments (clip base), imagery caches | service runtime | as fetched |
 
@@ -217,11 +245,13 @@ endpoints, retention).
 `ingest/graph.py` camera graph + spatial/street queries · `feeds.py` rate-gated
 snapshots + HLS segment frames, FrameRecord emission · `activity.py` binary
 pixel-activity flag · `detect.py` BFS detection sweep + hot lane ·
-`orientation.py` + `solar.py` bearing stack + sun · `refuge.py` + `hours.py`
-open-business layer + OSM hours evaluator · `statics.py` street-context
-builder · `observations.py` + `vlm_forward.py` breadcrumbs + `:8040/read`
-push · `vlm_client.py` OpenAI-compatible VLM (Anthropic fallback) ·
-`service.py` REST on `:8030` · `netboot.py` DNS-over-TCP bootstrap for hostile
-venue networks · `config.py` every knob.
+`cvdetect.py` local CNN layer (process pool, per-frame result cache) ·
+`locate.py` mathematics layer (pixel box → lat/lon) · `setup_cv.py` one-command
+CV installer/orchestrator · `orientation.py` + `solar.py` bearing stack + sun ·
+`refuge.py` + `hours.py` open-business layer + OSM hours evaluator ·
+`statics.py` street-context builder · `observations.py` + `vlm_forward.py`
+breadcrumbs + `:8040/read` push · `vlm_client.py` OpenAI-compatible VLM
+(Anthropic fallback) · `service.py` REST on `:8030` · `netboot.py`
+DNS-over-TCP bootstrap for hostile venue networks · `config.py` every knob.
 
 Deeper spec, definition of done, and per-feature docs: [`SPEC.md`](SPEC.md).

@@ -40,8 +40,8 @@ from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from . import (activity, config, detect, feeds, netboot, observations,
-               orientation, refuge, solar, vlm_forward)
+from . import (activity, config, cvdetect, detect, feeds, netboot,
+               observations, orientation, refuge, solar, vlm_forward)
 from .graph import CameraGraph
 
 app = FastAPI(title="GozAlti media-ingest")
@@ -254,6 +254,31 @@ def api_analyze(cid: str):
     if res is None:
         raise HTTPException(502, "analysis failed")
     return res
+
+
+# ---------------------------------------------- local OpenCV CNN pipeline
+
+@app.get("/api/cv/status")
+def api_cv_status():
+    """Local CNN readiness (yolov4-tiny via opencv-dnn, worker processes)."""
+    return cvdetect.status()
+
+
+@app.get("/api/cv/camera/{cid}")
+def api_cv_camera(cid: str, force: bool = False):
+    """Single-camera local pipeline: rate-gated freshest frame -> CNN in a
+    worker process -> mathematics layer -> world-positioned detections.
+    Polling faster than new frames arrive returns the cached result
+    (`cached: true`) with zero upstream requests."""
+    node = _node_or_404(cid)
+    return cvdetect.analyze_camera_cv(node, force=force)
+
+
+@app.get("/api/cv/point")
+def api_cv_point(lat: float, lon: float, radius_m: float = 150.0):
+    """Point pipeline: lat/lon -> cameras that see it -> parallel frames
+    (rate gates hold) -> parallel CNN forward passes -> world positions."""
+    return cvdetect.analyze_point_cv(G, lat, lon, radius_m)
 
 
 @app.get("/api/sun")
