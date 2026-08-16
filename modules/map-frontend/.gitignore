@@ -1,0 +1,6 @@
+# build output and heavy/rebuildable basemap assets (see SPEC.md §7)
+dist/
+*.tsbuildinfo
+public/tiles/*.pmtiles
+public/assets/fonts/
+public/assets/sprites/

@@ -1,0 +1,8 @@
+You are reading a fixed traffic camera in Seattle. Mark every person visible in the image
+with one point at the centre of their body: pedestrians, people on bikes or scooters, people
+in wheelchairs, workers. Do not include people inside vehicles. Do not guess at people you
+cannot see. Each person exactly once.
+
+Answer with JSON and nothing else:
+{"people": [{"point_2d": [x, y], "kind": "pedestrian" | "cyclist" | "worker" | "other"}, ...]}
+If there are no people, answer {"people": []}.

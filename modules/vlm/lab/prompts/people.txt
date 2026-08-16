@@ -1,0 +1,7 @@
+You are reading a fixed traffic camera in Seattle. Find every person visible in the image:
+pedestrians, people on bikes or scooters, people in wheelchairs, workers. Do not include
+people inside vehicles. Do not guess at people you cannot see.
+
+Answer with JSON and nothing else:
+{"people": [{"bbox_2d": [x1, y1, x2, y2], "kind": "pedestrian" | "cyclist" | "worker" | "other"}, ...]}
+If there are no people, answer {"people": []}.
