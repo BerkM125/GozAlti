@@ -75,7 +75,9 @@ def ask(model, prompt, image, max_tokens, api):
     else:
         body = {"model": model, "prompt": prompt, "images": [b64], "stream": False,
                 "format": "json", "keep_alive": "24h", "think": False,
-                "options": {"temperature": 0, "num_predict": max_tokens}}
+                # ollama otherwise loads qwen3-vl:8b at its full 262144-token context,
+                # which reserves 44.5 GB of KV cache on this box and OOMs the detector
+                "options": {"temperature": 0, "num_predict": max_tokens, "num_ctx": 16384}}
         url = f"{OLLAMA}/api/generate"
     req = urllib.request.Request(url, data=json.dumps(body).encode(),
                                  headers={"Content-Type": "application/json",

@@ -246,8 +246,14 @@ def _spread(seq, k):
 
 # ------------------------------------------------------------------ VLM
 
-def vlm(model, prompt, image, max_tokens, api, timeout=600):
-    """One VLM call. `image` may be None for the text-only summarize/ask passes."""
+def vlm(model, prompt, image, max_tokens, api, timeout=600, num_ctx=16384):
+    """One VLM call. `image` may be None for the text-only summarize/ask passes.
+
+    `num_ctx` matters more than it looks. ollama defaults qwen3-vl:8b to its full
+    262144-token context, which reserves 44.5 GB of KV cache on this box — measured,
+    and enough to push the detector into CUDA OOM on the shared 121 GB. 16k is far
+    more than a strip image plus our digest needs and costs about 2 GB.
+    """
     if api == "openai":
         content = [{"type": "text", "text": prompt}]
         if image:
@@ -261,7 +267,8 @@ def vlm(model, prompt, image, max_tokens, api, timeout=600):
     else:
         body = {"model": model, "prompt": prompt, "stream": False, "format": "json",
                 "keep_alive": "24h", "think": False,
-                "options": {"temperature": 0, "num_predict": max_tokens}}
+                "options": {"temperature": 0, "num_predict": max_tokens,
+                            "num_ctx": num_ctx}}
         if image:
             body["images"] = [base64.b64encode(Path(image).read_bytes()).decode()]
         url = f"{OLLAMA}/api/generate"
@@ -322,12 +329,13 @@ def chunk_context(chunk, tracks):
     return "\n".join(L) + "\n\n"
 
 
-def caption_chunks(chunks, frames, per_frame, tracks, work, model, api, max_tokens):
+def caption_chunks(chunks, frames, per_frame, tracks, work, model, api, max_tokens, num_ctx):
     base = (HERE / "prompts" / "chunk_caption.txt").read_text()
     secs, fails = [], 0
     for ch in chunks:
         strip, picked = strip_image(frames, per_frame, ch, work / "strips" / f"chunk{ch['chunk']:02d}.jpg")
-        text, s = vlm(model, chunk_context(ch, tracks) + base, strip, max_tokens, api)
+        text, s = vlm(model, chunk_context(ch, tracks) + base, strip, max_tokens, api,
+                      num_ctx=num_ctx)
         cap = parse_json(text)
         secs.append(s)
         ch["strip"] = strip.name
@@ -384,16 +392,17 @@ def captions_digest(chunks, agg, meta, camera):
     return "\n".join(L)
 
 
-def summarize(digest, model, api, max_tokens):
+def summarize(digest, model, api, max_tokens, num_ctx):
     base = (HERE / "prompts" / "clip_summary.txt").read_text()
-    text, s = vlm(model, base + "\n\nMATERIAL:\n" + digest, None, max_tokens, api)
+    text, s = vlm(model, base + "\n\nMATERIAL:\n" + digest, None, max_tokens, api,
+                  num_ctx=num_ctx)
     return parse_json(text), s, text
 
 
-def ask(digest, question, model, api, max_tokens):
+def ask(digest, question, model, api, max_tokens, num_ctx):
     base = (HERE / "prompts" / "clip_qa.txt").read_text()
     prompt = base + "\n\nMATERIAL:\n" + digest + f"\n\nQUESTION: {question}\n"
-    text, s = vlm(model, prompt, None, max_tokens, api)
+    text, s = vlm(model, prompt, None, max_tokens, api, num_ctx=num_ctx)
     return parse_json(text), s, text
 
 
@@ -475,16 +484,16 @@ def run_clip(src, a, viewer_data):
     if not a.no_vlm:
         print(f"  caption: {len(chunks)} chunks of {a.chunk}s -> {a.model}")
         cap_secs, cap_fails = caption_chunks(chunks, frames, per_frame, tracks, work,
-                                             a.model, a.api, a.max_tokens)
+                                             a.model, a.api, a.max_tokens, a.num_ctx)
         digest = captions_digest(chunks, agg, meta, camera)
         (work / "digest.txt").write_text(digest)
-        summary, sum_s, raw = summarize(digest, a.model, a.api, a.max_tokens + 300)
+        summary, sum_s, raw = summarize(digest, a.model, a.api, a.max_tokens + 300, a.num_ctx)
         if summary:
             print(f"  summary [{sum_s}s]: {summary.get('headline', '')}")
         else:
             print(f"  summary [{sum_s}s]: PARSE FAIL: {raw[:160]}")
         for q in (a.ask or DEFAULT_QUESTIONS):
-            ans, qs, raw = ask(digest, q, a.model, a.api, a.max_tokens)
+            ans, qs, raw = ask(digest, q, a.model, a.api, a.max_tokens, a.num_ctx)
             qa_rows.append({"question": q, "answer": ans, "seconds": qs,
                             "parse_error": None if ans else (raw or "")[:200]})
             mark = "" if (ans or {}).get("supported") else "  [not supported by footage]"
@@ -607,6 +616,9 @@ def main():
     ap.add_argument("-m", "--model", default=os.environ.get("VLM", "qwen3-vl:8b"))
     ap.add_argument("--api", choices=["ollama", "openai"], default=os.environ.get("VLM_API", "ollama"))
     ap.add_argument("-n", "--max-tokens", type=int, default=420)
+    ap.add_argument("--num-ctx", type=int, default=16384,
+                    help="ollama context window; the default 262144 reserves 44.5 GB of "
+                         "KV cache on this box and starves the detector")
     ap.add_argument("--ask", action="append", help="question over the clip; repeatable")
     ap.add_argument("--no-vlm", action="store_true", help="index only, skip captions/summary/Q&A")
     ap.add_argument("--frames-json", action="store_true", help="also dump full per-frame detections")
