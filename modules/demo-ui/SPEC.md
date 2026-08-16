@@ -33,6 +33,20 @@ Each row exists and works somewhere today; the work is porting, not inventing.
 | 10 | Live alerts banner (SSE) | — blocked on synthesis (§5.1 spike 5) | `:8020/api/alerts/stream` when it exists |
 | 11 | Live user location on the map | walk-app | device GPS — **secure-context rule below** |
 
+## Port status (16 Aug ~02:15, Berkan)
+
+Rows 3–6 landed in the walk-app shell in their **instant** form: the client
+routes through `GET /api/path` → `:8030/api/route` (`live=false`), renders
+risk-bucket-colored segments with the `risk_parts` sheet (row 4), en-route
+cameras from `cameras_en_route_detail` (row 5), refuges as green dots
+(row 6), the `live pending` badge, and falls back to the in-process router
+(labeled) only when media-ingest is down. **Still to wire (Dhruv/Ioli):**
+the live poll — `/api/path/live/{path_id}` is already proxied by the
+walk-app server; the client just needs the ~2 s poll + re-render on
+`version` change, plus flipping `live=false` to `true` in `src/api.ts`
+(`fetchOnePath`). Rows 1 (all-cameras layer), 2 (HLS for en-route tiles
+outside the nearby merge), and 7–9 remain.
+
 ## Hard constraint from `modules/ios-pwa`
 
 `navigator.geolocation` fails silently on iOS Safari over plain-HTTP LAN/tailnet

@@ -11,6 +11,8 @@ import {
   type Camera,
   type Detection,
   type LngLat,
+  type PathPair,
+  type PathRefuge,
   type RouteResult,
 } from "../types.ts";
 import { CAMERA_MARKER_GLYPH } from "./icons.tsx";
@@ -26,12 +28,19 @@ type Props = {
   /** True while the search bar's "Choose on the map" waits for a tap. Block
    *  taps yield to it, so the tap places the stop instead of opening a sheet. */
   pickingStop: boolean;
+  /** Local fallback router result. Null whenever `path` is set. */
   result: RouteResult | null;
+  /** Consolidated router (modules/pathfinding) result. Wins over `result`. */
+  path: PathPair | null;
   origin: LngLat | null;
   dest: LngLat | null;
   /** Where the walker is, when known. Drawn as its own marker. */
   userPos: LngLat | null;
   cameras: Camera[];
+  /** Camera ids on the active path, drawn with the en-route ring. */
+  routeCamIds: Set<string>;
+  /** Open businesses along the path — the "exit route" dots. */
+  refuges: PathRefuge[];
   detections: { camera: Camera; detection: Detection }[];
   selectedSegment: string | null;
   selectedCamera: string | null;
@@ -54,10 +63,13 @@ export default function MapView({
   layer,
   pickingStop,
   result,
+  path,
   origin,
   dest,
   userPos,
   cameras,
+  routeCamIds,
+  refuges,
   detections,
   selectedSegment,
   selectedCamera,
@@ -223,6 +235,32 @@ export default function MapView({
         filter: ["==", ["get", "segment_id"], "__none__"],
       });
 
+      // The tapped consolidated-router segment, same visual language. Its
+      // pf:* segment_ids live in the segments source, not in blocks, so the
+      // block-selected filter can never match them.
+      m.addLayer({
+        id: "segment-selected-casing",
+        type: "line",
+        source: "segments",
+        layout: { "line-cap": "round", "line-join": "round" },
+        paint: {
+          "line-color": SELECTED.casing,
+          "line-width": ["interpolate", ["linear"], ["zoom"], 12, 9, 17, 16],
+        },
+        filter: ["==", ["get", "segment_id"], "__none__"],
+      });
+      m.addLayer({
+        id: "segment-selected",
+        type: "line",
+        source: "segments",
+        layout: { "line-cap": "round", "line-join": "round" },
+        paint: {
+          "line-color": SELECTED.line,
+          "line-width": ["interpolate", ["linear"], ["zoom"], 12, 5, 17, 11],
+        },
+        filter: ["==", ["get", "segment_id"], "__none__"],
+      });
+
       // A 9px stroke is not a thumb target.
       m.addLayer({
         id: "segment-hit",
@@ -296,8 +334,8 @@ export default function MapView({
 
       // With a route on screen, tilting must keep the whole route framed -
       // zooming in on the tilt is what pushes the destination off the edge.
-      if (result) {
-        m.fitBounds(routeBounds(result), { ...FIT_PADDING, pitch, duration: 700 });
+      if (result || path) {
+        m.fitBounds(routeBounds(result, path), { ...FIT_PADDING, pitch, duration: 700 });
         return;
       }
       m.easeTo({
@@ -324,19 +362,19 @@ export default function MapView({
   // -- routes --------------------------------------------------------------
   useEffect(() => {
     whenReady((m) => {
-      paintRoutes(m, result);
-      // With a route up, the weights recede to context so the blue line pops.
+      paintRoutes(m, result, path);
+      // With a route up, the weights recede to context so the route pops.
       // MapLibre's default 300ms paint transition animates the change.
-      m.setPaintProperty("blocks-heat", "line-opacity", result ? 0.3 : 0.85);
-      if (result) {
-        m.fitBounds(routeBounds(result), {
+      m.setPaintProperty("blocks-heat", "line-opacity", result || path ? 0.3 : 0.85);
+      if (result || path) {
+        m.fitBounds(routeBounds(result, path), {
           ...FIT_PADDING,
           duration: 700,
           pitch: view === "3D" ? PITCH_3D : PITCH_2D,
         });
       }
     });
-  }, [result]);
+  }, [result, path]);
 
   // -- centre on the walker, once ------------------------------------------
   // Only the first fix moves the camera. Re-centring on every update would
@@ -347,10 +385,10 @@ export default function MapView({
     if (!userPos || flown.current) return;
     flown.current = true;
     whenReady((m) => {
-      if (result) return;
+      if (result || path) return;
       m.easeTo({ center: userPos, zoom: Math.max(m.getZoom(), 15.5), duration: 900 });
     });
-  }, [userPos, result]);
+  }, [userPos, result, path]);
 
   // -- selection -----------------------------------------------------------
   useEffect(() => {
@@ -362,6 +400,8 @@ export default function MapView({
       ];
       m.setFilter("block-selected-casing", filter);
       m.setFilter("block-selected", filter);
+      m.setFilter("segment-selected-casing", filter);
+      m.setFilter("segment-selected", filter);
     });
   }, [selectedSegment]);
 
@@ -383,14 +423,14 @@ export default function MapView({
       // stays clean - the panel still lists what is near you - except for a
       // camera the user has actually opened, which gets its marker so the
       // viewer's frame can be placed on the street.
-      const mapCameras = result
-        ? cameras
-        : cameras.filter((c) => c.camera_id === selectedCamera);
+      const mapCameras =
+        result || path ? cameras : cameras.filter((c) => c.camera_id === selectedCamera);
 
       for (const c of mapCameras) {
         const live = c.live_hls ? "mk-cam-live" : "";
         const sel = c.camera_id === selectedCamera ? "is-selected" : "";
-        const node = el(`mk mk-cam ${live} ${sel}`, CAMERA_MARKER_GLYPH);
+        const enRoute = routeCamIds.has(c.camera_id) ? "is-route" : "";
+        const node = el(`mk mk-cam ${live} ${sel} ${enRoute}`, CAMERA_MARKER_GLYPH);
         // A cone is drawn only when the bearing is actually resolved. An
         // unresolved camera shows a marker with no direction rather than a
         // guessed one.
@@ -406,6 +446,14 @@ export default function MapView({
           node,
           onClick: () => cbs.current.onSelectCamera(c.camera_id),
         });
+      }
+
+      // Open businesses along the path. Green because they are part of the
+      // recommendation — an open door to walk toward (demo-ui checklist row 6).
+      for (const r of refuges) {
+        const node = el("mk mk-refuge");
+        node.title = `${r.name ?? "open business"}${r.open_until ? ` · open until ${r.open_until}` : " · open now"}`;
+        want.set(`refuge:${r.osm_id ?? `${r.lat},${r.lon}`}`, { at: [r.lon, r.lat], node });
       }
 
       for (const { camera, detection } of detections) {
@@ -446,7 +494,7 @@ export default function MapView({
         markers.current.set(key, { marker, sig });
       }
     });
-  }, [origin, dest, userPos, cameras, detections, selectedCamera, result]);
+  }, [origin, dest, userPos, cameras, detections, selectedCamera, result, path, refuges, routeCamIds]);
 
   return <div ref={container} className="map" />;
 }
@@ -460,14 +508,31 @@ const FIT_PADDING = {
   padding: { top: TOP_CHROME_PX, bottom: BOTTOM_CHROME_PX, left: 44, right: 44 },
 };
 
-function routeBounds(result: RouteResult): maplibregl.LngLatBounds {
+function routeBounds(result: RouteResult | null, path: PathPair | null): maplibregl.LngLatBounds {
   const b = new maplibregl.LngLatBounds();
-  for (const c of toLngLat(result.safer.polyline)) b.extend(c);
-  for (const c of toLngLat(result.shortest.polyline)) b.extend(c);
+  const lines = path
+    ? [path.safer.polyline, path.shortest.polyline]
+    : result
+      ? [result.safer.polyline, result.shortest.polyline]
+      : [];
+  for (const line of lines) for (const c of toLngLat(line)) b.extend(c);
   return b;
 }
 
-function paintRoutes(m: maplibregl.Map, result: RouteResult | null) {
+/**
+ * Consolidated-router segments wear their risk bucket (demo-ui checklist
+ * row 4): the recommendation green, flagged orange, alert red. Red on a
+ * segment is the one sanctioned extension of the colour budget — it marks a
+ * high live/collision weighting, the thing the demo exists to show. Every
+ * bucket links back to `risk_parts` + `risk_basis` in the segment sheet.
+ */
+const BUCKET = {
+  low: "#34C759",
+  medium: "#FF9500",
+  high: "#FF3B30",
+} as const;
+
+function paintRoutes(m: maplibregl.Map, result: RouteResult | null, path: PathPair | null) {
   const p = ROUTE;
 
   const line = (polyline: [number, number][] | undefined, props: Record<string, string>) =>
@@ -484,13 +549,35 @@ function paintRoutes(m: maplibregl.Map, result: RouteResult | null) {
         } as FeatureCollection)
       : EMPTY;
 
-  (m.getSource("direct") as maplibregl.GeoJSONSource)?.setData(
-    line(result?.shortest.polyline, { color: p.direct }),
-  );
-  (m.getSource("safer") as maplibregl.GeoJSONSource)?.setData(
-    line(result?.safer.polyline, { color: p.safer, casing: p.casing }),
-  );
-  (m.getSource("segments") as maplibregl.GeoJSONSource)?.setData(
+  const src = (id: string) => m.getSource(id) as maplibregl.GeoJSONSource | undefined;
+
+  if (path) {
+    // Consolidated router: the recommended route is its segments, each wearing
+    // its risk bucket. The existing safer-line layer reads per-feature colour,
+    // so one feature per segment is all it takes.
+    src("direct")?.setData(line(path.shortest.polyline, { color: p.direct }));
+    src("safer")?.setData({
+      type: "FeatureCollection",
+      features: path.safer.segments.map((s) => ({
+        type: "Feature",
+        properties: { color: BUCKET[s.risk_bucket] ?? p.safer, casing: p.casing },
+        geometry: s.geometry,
+      })),
+    } as FeatureCollection);
+    src("segments")?.setData({
+      type: "FeatureCollection",
+      features: path.safer.segments.map((s) => ({
+        type: "Feature",
+        properties: { segment_id: s.segment_id },
+        geometry: s.geometry,
+      })),
+    } as FeatureCollection);
+    return;
+  }
+
+  src("direct")?.setData(line(result?.shortest.polyline, { color: p.direct }));
+  src("safer")?.setData(line(result?.safer.polyline, { color: p.safer, casing: p.casing }));
+  src("segments")?.setData(
     result
       ? ({
           type: "FeatureCollection",

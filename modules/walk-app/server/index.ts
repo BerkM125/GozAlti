@@ -176,6 +176,32 @@ async function cameraConvergence(
   return { query, cameras: res.cameras.map(toConvergenceCamera) };
 }
 
+/**
+ * Proxies a media-ingest endpoint preserving its status code and JSON body.
+ * The consolidated router's 422s ({detail:{error:"out_of_area"}}) must reach
+ * the client distinguishable from "service down" (503 with ok:false).
+ */
+async function ingestPassthrough(
+  path: string,
+  timeoutMs = 15_000,
+  method: "GET" | "DELETE" = "GET",
+): Promise<Response> {
+  try {
+    const res = await fetch(`${INGEST}${path}`, {
+      method,
+      signal: AbortSignal.timeout(timeoutMs),
+      headers: { "user-agent": "gozalti-walk-app/0.1" },
+    });
+    const body = await res.text();
+    return new Response(body, {
+      status: res.status,
+      headers: { "content-type": "application/json", "cache-control": "no-store" },
+    });
+  } catch {
+    return json({ ok: false, why: `media-ingest unreachable at ${INGEST}` }, 503);
+  }
+}
+
 /** Streams a binary upstream response (frames, HLS) straight through. */
 async function ingestStream(path: string, timeoutMs = 8000): Promise<Response> {
   try {
@@ -214,7 +240,40 @@ async function handle(req: Request): Promise<Response> {
     });
   }
 
-  // -- routing --------------------------------------------------------------
+  // -- consolidated router (modules/pathfinding, mounted on media-ingest) ----
+  // The ONE shipped router per god SPEC §5.1 spike 4: real SDOT collisions,
+  // camera coverage, osint hook and live camera evidence in the A* weights.
+  // GET /api/path?from=lat,lon&to=lat,lon&kind=safer|shortest&live=true|false
+  // The in-process router below stays as the offline fallback; the client
+  // tries this first and falls back only when media-ingest is unreachable.
+  if (path === "/api/path") {
+    const from = parseLatLon(url.searchParams.get("from"));
+    const to = parseLatLon(url.searchParams.get("to"));
+    if (!from || !to) return json({ error: "need from=lat,lon and to=lat,lon" }, 400);
+    const kind = url.searchParams.get("kind") === "shortest" ? "shortest" : "safer";
+    // Instant one-and-done by default; live=true also starts the
+    // PathLiveSession upstream (poll /api/path/live/{path_id} at ~2 s).
+    const live = url.searchParams.get("live") === "true";
+    const [olon, olat] = from;
+    const [dlon, dlat] = to;
+    return ingestPassthrough(
+      `/api/route?olat=${olat}&olon=${olon}&dlat=${dlat}&dlon=${dlon}&kind=${kind}&live=${live}`,
+    );
+  }
+
+  // Live-session poll + stop, straight passthrough. Sessions expire upstream
+  // 180 s after the last poll, so an abandoned tab cleans itself up.
+  const pathLive = path.match(/^\/api\/path\/live\/([^/]+)$/);
+  if (pathLive) {
+    const since = url.searchParams.get("since");
+    return ingestPassthrough(
+      `/api/route/live/${encodeURIComponent(pathLive[1])}${since ? `?since=${since}` : ""}`,
+      8000,
+      req.method === "DELETE" ? "DELETE" : "GET",
+    );
+  }
+
+  // -- routing (in-process fallback router) ----------------------------------
   // POST { origin: [lon,lat], dest: [lon,lat], algorithm? }
   // GET  ?from=lat,lon&to=lat,lon&algorithm=
   if (path === "/api/route") {
@@ -229,8 +288,14 @@ async function handle(req: Request): Promise<Response> {
           dest?: [number, number];
           algorithm?: Algorithm;
         };
-        origin = body.origin ?? null;
-        dest = body.dest ?? null;
+        // A TypeScript cast is not a runtime check (demo/BUGS.md #2): the
+        // same Number.isFinite gate the GET path applies via parseLatLon.
+        const pt = (p: unknown): [number, number] | null =>
+          Array.isArray(p) && p.length === 2 && p.every((n) => Number.isFinite(n))
+            ? (p as [number, number])
+            : null;
+        origin = pt(body.origin);
+        dest = pt(body.dest);
         if (body.algorithm === "dijkstra") algorithm = "dijkstra";
       } catch {
         return json({ error: "malformed JSON body" }, 400);

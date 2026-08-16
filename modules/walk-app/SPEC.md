@@ -16,6 +16,30 @@ Harness also derives `collisions`, `live_penalty`, `confidence` and `stale` from
 Which router the demo uses is a call for the team, not something this module should decide unilaterally.
 `modules/synthesis/` is still SPEC-only, which is why the alert stream here has nothing to push.
 
+## Consolidated router integration (16 Aug, demo-ui checklist rows 3–6)
+
+The client now routes through **`modules/pathfinding`** — the ONE shipped
+router (god SPEC §5.1 spike 4) — via a server proxy to media-ingest:
+
+- `GET /api/path?from=lat,lon&to=lat,lon&kind=safer|shortest&live=` proxies
+  `:8030/api/route` (instant one-and-done, `live=false` from this client for
+  now). 422 error codes pass through; 503 means media-ingest is down.
+- `GET|DELETE /api/path/live/{path_id}?since=` proxies the PathLiveSession
+  poll — **wired server-side, not yet polled by the client** (next port:
+  poll ~2 s, re-render on `version` change, per demo-ui row 3).
+- The UI renders the PathObject: segments colored by `risk_bucket`
+  (green/amber/red per demo-ui row 4 — the sanctioned extension of the
+  colour budget below), a per-segment `risk_parts` evidence sheet (same
+  scale/inputs visual language as the block sheet), open refuges as green
+  dots, the `live pending` badge until live layers land, and the detour-cap
+  banner. The camera list rides the existing route-corridor query against
+  the consolidated polyline; the router's own `cameras_en_route` ids get a
+  blue en-route ring on their markers.
+- The in-process router below is now **explicitly the fallback**: it runs
+  only when media-ingest is unreachable, and the dock labels the result
+  with a banner saying so. (Formal deprecated-for-demo sign-off for the
+  in-process router remains Dhruv's call, per spike 4.)
+
 ## What is implemented
 
 - **Pedestrian graph** built from `experiments/surukamera/data/osm_ways.json`, the Overpass dump already committed to the repo. 5,435 junctions and 6,579 block-level edges for the downtown bbox, built in ~90 ms with no network call.
@@ -86,7 +110,10 @@ Without it the app still routes; the top bar shows a "cameras offline" chip.
 | Endpoint | Returns |
 |---|---|
 | `GET /api/health` | graph size + whether media-ingest is reachable |
-| `GET /api/route?from=lat,lon&to=lat,lon&algorithm=astar\|dijkstra` | `RouteResult` |
+| `GET /api/path?from=lat,lon&to=lat,lon&kind=safer\|shortest&live=` | `PathObject` (modules/pathfinding, proxied) |
+| `GET /api/path/live/:path_id?since=N` | `{version, changed_since, path}` live-session poll, proxied |
+| `DELETE /api/path/live/:path_id` | stops the live session early |
+| `GET /api/route?from=lat,lon&to=lat,lon&algorithm=astar\|dijkstra` | `RouteResult` (in-process fallback) |
 | `GET /api/geocode?q=pike+st` | `{query, results:[{label, kind, lat, lon}]}` - streets and intersections from the walk graph, offline |
 | `POST /api/route` | same, body `{origin:[lon,lat], dest:[lon,lat], algorithm?}` |
 | `GET /api/blocks` | GeoJSON FeatureCollection of every walkable block, `{segment_id, risk}` per feature; built once at boot, pre-gzipped (~300 kB). Feeds the map's routing-weight layer |
@@ -138,6 +165,7 @@ The field names, types and nullability are unchanged - `live_hls` is still `null
 - **`risk` is shown as what it is - a routing weight - and never as a safety verdict.** The default map layer colours every block by its weight, the legend and the block sheet's scale bar say "routing weight" (never "safety" or "danger score"), no aggregate number is printed anywhere, and tapping any block shows where it sits on the scale plus the four inputs behind it.
   Documented deviation: root SPEC §6.4 still says everything shown to a user comes from `evidence[]`, never bare `risk`; the module owner is raising that change with the team, and the shared file is not edited from this module.
 - **Colour carries fixed meanings**: blue `#007AFF` is the recommended route and the chrome. The muted green-to-brick weight ramp (`palette.ts WEIGHT_STOPS` / `--ramp`) carries routing weight and nothing else. Green `#34C759` marks only a live/healthy camera feed. Orange `#FF9500` is flagged or unmapped in UI fills. Solid red `#FF3B30` fills stay reserved for live alerts and refusals. Camera markers are neutral so a real alert stays unmistakable.
+  **One sanctioned extension (demo-ui checklist row 4):** consolidated-router route segments wear their `risk_bucket` - green `#34C759` / orange `#FF9500` / red `#FF3B30` - with the full `risk_parts` breakdown one tap away; red on a segment marks a high live/collision weighting, which is the demo's point.
 - **Only one camera streams live at a time.** Tiles in the list are snapshots; live HLS plays only in the full-screen viewer, for the one camera the user opened. Each playing tile is a continuous viewer on SDOT's stream host, and nothing upstream throttles that, so the count is held at one. A stream-capable camera showing a still says so and offers `▶ LIVE`; it never shows `LIVE` over a still frame.
 - **Every camera image carries an age badge**, read from the §6.1 `FrameRecord` (`GET /api/frame/:cid/record`), not from the VLM. A camera with no VLM read still has a timestamped frame, so the badge works with no model in the loop: `LIVE` while playing, else `STREAM 6s` / `SNAP 45s` / `CACHED 12m` naming the frame's `source`, `NO FRESH FRAME` when `stale`, `AGE UNKNOWN` when no record has arrived. Snapshot refresh is 60 s, matching media-ingest's per-camera floor.
 - **Detections with no `est` are never placed on the map.** They appear in a "seen, but not placed" group that says the camera's bearing is unresolved.

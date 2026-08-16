@@ -6,11 +6,14 @@ import {
   EVIDENCE_LABEL,
   FAMILY_LABEL,
   familyOf,
+  RISK_PART_LABEL,
   type Camera,
   type Detection,
   type DetectionFamily,
   type FrameRecord,
   type Observation,
+  type PathLiveMeta,
+  type PathSegment,
   type SegmentAssessment,
 } from "../types.ts";
 
@@ -122,6 +125,91 @@ export function SegmentSheet({
       </ul>
 
       <p className="note">From OpenStreetMap tags on this street - not a safety verdict.</p>
+    </Sheet>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Consolidated-router segment evidence
+//
+// Same promise as SegmentSheet, for the shipped router (modules/pathfinding):
+// `risk_parts` IS the breakdown — every part already weighted and naming its
+// source. Rendered verbatim, largest first. No aggregate score is shown.
+// ---------------------------------------------------------------------------
+
+export function PathSegmentSheet({
+  segment,
+  live,
+  onClose,
+}: {
+  segment: PathSegment;
+  live: PathLiveMeta;
+  onClose: () => void;
+}) {
+  const parts = Object.entries(segment.risk_parts).sort((a, b) => b[1] - a[1]);
+  const shown = parts.filter(([, v]) => v > 0.001);
+  const zeroes = parts.filter(([, v]) => v <= 0.001).map(([k]) => RISK_PART_LABEL[k]?.name ?? k);
+  return (
+    <Sheet
+      title={segment.name}
+      sub={
+        <>
+          {segment.length_m} m ·{" "}
+          <span className={`bucket bucket-${segment.risk_bucket}`}>
+            {segment.risk_bucket} weighting
+          </span>
+        </>
+      }
+      onClose={onClose}
+    >
+      <div className="scale">
+        <span className="scale-cap">Routing weight</span>
+        <div className="scale-bar">
+          <span className="scale-dot" style={{ left: `${riskToT(segment.risk) * 100}%` }} />
+        </div>
+        <span className="scale-ends">
+          <i>lower</i>
+          <i>higher</i>
+        </span>
+      </div>
+
+      <ul className="inputs">
+        {shown.map(([k, v]) => {
+          const meta = RISK_PART_LABEL[k] ?? { name: k, source: "unlisted part" };
+          return (
+            <li key={k}>
+              {/* Dot colour tracks the part's weighted contribution on the
+                  same ramp the map's weight layer uses. */}
+              <span className="in-dot" style={{ background: weightColor(v) }} />
+              <span className="in-type">
+                {meta.name}
+                {meta.live && <span className="pf-live-tag"> live</span>}
+              </span>
+              <span className="in-detail">{meta.source}</span>
+              <span className="in-val mono">+{v.toFixed(3)}</span>
+            </li>
+          );
+        })}
+      </ul>
+      {zeroes.length > 0 && (
+        <p className="note">Contributing nothing here: {zeroes.join(", ").toLowerCase()}.</p>
+      )}
+      <p className="note">
+        {segment.cameras.length > 0
+          ? `Watched by ${segment.cameras.join(", ")}.`
+          : "No public camera covers this block."}
+      </p>
+      {!live.incorporated && (
+        <p className="note note-flag">
+          Live camera layers are not in this weighting yet
+          {live.layers_pending.length > 0 ? ` (pending: ${live.layers_pending.join(", ")})` : ""}.
+          Basis: {live.basis}.
+        </p>
+      )}
+      <p className="note">
+        Weights are a deterministic combination of the evidence above, used only to rank routes.
+        Nothing here is a safety verdict.
+      </p>
     </Sheet>
   );
 }

@@ -13,7 +13,15 @@ Severity: **BLOCKER** breaks the demo · **IMPORTANT** wrong output or unguarded
 ## Open
 
 ### 1. IMPORTANT — route shows only ~3 cameras (single-point sampling)
-`modules/walk-app/server/index.ts:157` · owner: walk-app
+`modules/walk-app/server/index.ts` (fallback route handler) · owner: walk-app
+
+**Update 16 Aug ~02:15:** the symptom is closed in the primary path — with the
+consolidated router up, en-route cameras come from the PathObject's
+`cameras_en_route_detail` (whole-route coverage, computed by
+`modules/pathfinding`). The midpoint-sampling code below now runs only in the
+in-process fallback, which only activates when media-ingest is down — and with
+media-ingest down the convergence call fails anyway, so it is effectively dead
+code. Left open at reduced severity for the fallback path.
 
 ```ts
 const mid = result.safer.polyline[Math.floor(result.safer.polyline.length / 2)];
@@ -34,24 +42,6 @@ sampled = coords[::EN_ROUTE_STRIDE]          # every 3rd coordinate, stride = 3
 
 Note the radius change matters as much as the sampling: 400 m from one point pulls in
 cameras that cannot see the walk, while 60 m along the path pulls in the ones that can.
-
-### 2. IMPORTANT — `POST /api/route` does not validate its body
-`modules/walk-app/server/index.ts:129-141` · owner: walk-app
-
-```ts
-const body = (await req.json()) as { origin?: [number, number]; dest?: [number, number] };
-origin = body.origin ?? null;
-```
-
-A TypeScript cast is not a runtime check. Missing elements, non-numeric values, NaN or
-out-of-range coordinates flow into `planRoute` → `NodeIndex.nearest()`, which destructures
-`[lon, lat]` and does arithmetic on them. It fails safely but mislabels the failure as
-"no walkable street near one of those points" (422).
-
-The GET path at line 59-64 (`parseLatLon`) already checks `Number.isFinite` on both parts.
-**Fix:** same check on POST — `Array.isArray`, length 2, `Number.isFinite` on both.
-SPEC §7.4 and CLAUDE.md both require validating at boundaries; this is the one boundary in
-the module that skips it.
 
 ### 3. MINOR — same midpoint collapse on the client
 `modules/walk-app/src/App.tsx:98` · owner: walk-app
@@ -124,4 +114,9 @@ Not a code defect — a claim that should not be overstated on stage.
 
 ## Fixed
 
-_(nothing yet — move entries here with the commit that closed them)_
+### 2. IMPORTANT — `POST /api/route` does not validate its body
+`modules/walk-app/server/index.ts` · fixed 16 Aug ~02:15 (consolidated-router port commit)
+
+POST now runs the same `Array.isArray` + length-2 + `Number.isFinite` gate the GET path
+applies via `parseLatLon`. Verified: `{"origin": ["x","y"], "dest": [1]}` → 400 with a
+clear message; a valid body still routes.

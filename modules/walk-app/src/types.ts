@@ -145,6 +145,100 @@ export type TripStop = {
   label: string;
 };
 
+// ---------------------------------------------------------------------------
+// modules/pathfinding PathObject — the consolidated router (god SPEC §5.1
+// spike 4), served by media-ingest :8030 /api/route and proxied here as
+// /api/path. Shapes mirror modules/pathfinding/SPEC.md exactly.
+// ---------------------------------------------------------------------------
+
+export type RiskBucket = "low" | "medium" | "high";
+
+export type PathSegment = {
+  segment_id: string;
+  name: string;
+  geometry: { type: "LineString"; coordinates: LngLat[] };
+  length_m: number;
+  /** Routing weight in [0,1]. Stays out of the UI as a bare number. */
+  risk: number;
+  live_risk: number;
+  base_risk: number;
+  risk_bucket: RiskBucket;
+  /** Every cost-model part, named and already weighted. The evidence. */
+  risk_parts: Record<string, number>;
+  /** Camera ids whose coverage includes this block. */
+  cameras: string[];
+};
+
+export type PathCameraDetail = {
+  camera_id: string;
+  lat: number;
+  lon: number;
+  location_desc?: string | null;
+  has_stream?: boolean;
+  active?: boolean | null;
+  last_person_at?: string | null;
+};
+
+export type PathRefuge = {
+  osm_id?: number | string;
+  name?: string | null;
+  lat: number;
+  lon: number;
+  dist_m: number;
+  open_until?: string | null;
+  kind?: string | null;
+  open_now?: boolean;
+};
+
+export type PathLiveMeta = {
+  incorporated: boolean;
+  basis: string;
+  layers_pending: string[];
+  layers_incorporated?: string[];
+  cameras_reporting?: number;
+};
+
+export type PathObject = {
+  path_id: string;
+  version: number;
+  kind: "shortest" | "safer";
+  live: PathLiveMeta;
+  night: boolean;
+  daylight: boolean;
+  detour_cap_hit: boolean;
+  polyline: LatLng[];
+  length_m: number;
+  eta_min: number;
+  segments: PathSegment[];
+  cameras_en_route: string[];
+  cameras_en_route_detail: PathCameraDetail[];
+  cv_detections: Record<string, unknown>;
+  refuges_en_route: PathRefuge[];
+  evidence_summary: string;
+  risk_basis: string;
+  compute_ms: number;
+};
+
+/** Both kinds of one trip, fetched together so the dock can compare them. */
+export type PathPair = { safer: PathObject; shortest: PathObject };
+
+/**
+ * Human name + stated source for each cost-model part, verbatim from
+ * modules/pathfinding/SPEC.md. Parts marked live only move once the
+ * PathLiveSession has incorporated camera evidence.
+ */
+export const RISK_PART_LABEL: Record<string, { name: string; source: string; live?: boolean }> = {
+  traffic: { name: "Traffic", source: "OSM road class" },
+  lighting: { name: "Lighting", source: "OSM lit tag / class prior, scaled down in daylight" },
+  sidewalk: { name: "Sidewalk", source: "OSM sidewalk tags" },
+  collisions: { name: "Collisions", source: "SDOT recorded ped/cyclist collisions per 100 m" },
+  coverage: { name: "Camera coverage", source: "distance to the nearest public camera" },
+  osint: { name: "Reports", source: "area sentiment signals (osint)" },
+  crossings: { name: "Crossings", source: "junction density" },
+  occupancy: { name: "People on cameras", source: "live camera occupancy, night rule", live: true },
+  vlm_flags: { name: "Camera flags", source: "live VLM reads (e.g. blocked sidewalk)", live: true },
+};
+
 /** Every upstream call can come back like this, and the UI must render it. */
 export type Unavailable = { ok: false; why: string };
 

@@ -1423,3 +1423,115 @@ button {
     transform: none;
   }
 }
+
+/* -------------------------------------------------- consolidated router (pf) */
+
+/* Risk-bucket counts + live-state row in the dock. The three dot colours are
+   the same three the route segments wear (demo-ui checklist row 4); the whole
+   row carries risk_basis as its tooltip so no count renders baseless.
+   (.pf-buckets, not .legend - that name belongs to the weight-ramp legend.) */
+.pf-meta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.pf-buckets {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.pf-bucket {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--fg-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+.pf-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+}
+
+.dot-low {
+  background: var(--recommend);
+}
+
+.dot-medium {
+  background: var(--flag);
+}
+
+.dot-high {
+  background: var(--alert);
+}
+
+.pf-night {
+  font-size: 12px;
+  color: var(--fg-mute);
+}
+
+.chip-live {
+  background: var(--recommend-soft);
+  color: var(--recommend-text);
+}
+
+/* Bucket word in the segment sheet's subtitle. Text variants, which pass
+   contrast on white; the swatch colours themselves are too light for text. */
+.bucket {
+  font-weight: 600;
+}
+
+.bucket-low {
+  color: var(--recommend-text);
+}
+
+.bucket-medium {
+  color: var(--flag-text);
+}
+
+.bucket-high {
+  color: var(--alert-text);
+}
+
+/* LIVE tag on the two live cost-model parts in the evidence list. */
+.pf-live-tag {
+  color: var(--flag-text);
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+/* The weighted contribution at the end of an inputs row. */
+.in-val {
+  flex: none;
+  font-size: 11px;
+  color: var(--fg-mute);
+  font-variant-numeric: tabular-nums;
+}
+
+/* A camera the consolidated route runs past: the blue ring is chrome
+   (membership in the current route's camera set), not a meaning colour. */
+.mk-cam.is-route {
+  color: var(--fg);
+  box-shadow:
+    inset 0 1px 0 var(--glass-edge),
+    0 0 0 2.5px var(--accent),
+    0 1px 5px rgb(0 0 0 / 0.22);
+}
+
+/* An open business along the path - an exit route. Green because it is part
+   of the recommendation: an open door to walk toward. */
+.mk-refuge {
+  width: 12px;
+  height: 12px;
+  border-radius: var(--r-full);
+  background: var(--recommend);
+  border: 2.5px solid #fff;
+  box-shadow: 0 1px 4px rgb(0 0 0 / 0.3);
+}

@@ -6,6 +6,8 @@ import type {
   LatLng,
   LngLat,
   Observation,
+  PathObject,
+  PathPair,
   Place,
   RouteResult,
   SegmentAssessment,
@@ -24,6 +26,59 @@ async function get<T>(path: string, timeoutMs = 10_000): Promise<T | Unavailable
 }
 
 export class RouteError extends Error {}
+
+// ---------------------------------------------------------------------------
+// Consolidated router (modules/pathfinding via /api/path)
+// ---------------------------------------------------------------------------
+
+/** The router's error codes, phrased for a person holding a phone. */
+const PATH_ERRORS: Record<string, string> = {
+  out_of_area: "That point is outside the covered area (downtown through the U-District).",
+  too_close: "Those two points are too close together to route between.",
+  no_route: "No walkable route connects those points.",
+};
+
+async function fetchOnePath(
+  origin: LngLat,
+  dest: LngLat,
+  kind: "safer" | "shortest",
+): Promise<PathObject | Unavailable> {
+  let res: Response;
+  try {
+    res = await fetch(
+      `${API_BASE}/api/path?from=${origin[1]},${origin[0]}&to=${dest[1]},${dest[0]}&kind=${kind}&live=false`,
+      { signal: AbortSignal.timeout(20_000) },
+    );
+  } catch {
+    return { ok: false, why: "couldn't reach the walk-app server" };
+  }
+  if (res.status === 422) {
+    // Genuinely unroutable — the local fallback router covers a smaller area,
+    // so falling back would not help. Tell the user instead.
+    const body = (await res.json().catch(() => null)) as { detail?: { error?: string } } | null;
+    const code = body?.detail?.error ?? "no_route";
+    throw new RouteError(PATH_ERRORS[code] ?? `routing failed (${code})`);
+  }
+  if (res.status === 503) return (await res.json()) as Unavailable;
+  if (!res.ok) return { ok: false, why: `consolidated router returned ${res.status}` };
+  return (await res.json()) as PathObject;
+}
+
+/**
+ * Both kinds of one trip from the consolidated router, instant one-and-done
+ * (no live session yet — that wiring is the next port). Returns Unavailable
+ * when media-ingest is down so the caller can fall back to the local router;
+ * throws RouteError when the router answered but the trip is unroutable.
+ */
+export async function fetchPath(origin: LngLat, dest: LngLat): Promise<PathPair | Unavailable> {
+  const [safer, shortest] = await Promise.all([
+    fetchOnePath(origin, dest, "safer"),
+    fetchOnePath(origin, dest, "shortest"),
+  ]);
+  if (isUnavailable(safer)) return safer;
+  if (isUnavailable(shortest)) return shortest;
+  return { safer, shortest };
+}
 
 export async function fetchRoute(
   origin: LngLat,

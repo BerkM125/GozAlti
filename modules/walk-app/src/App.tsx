@@ -1,13 +1,20 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import MapView from "./components/MapView.tsx";
 import { CameraIcon, ChevronUpIcon, LayersIcon, PeopleIcon } from "./components/icons.tsx";
-import { CameraPanel, NearbyPanel, SegmentSheet, type Placed } from "./components/Panels.tsx";
+import {
+  CameraPanel,
+  NearbyPanel,
+  PathSegmentSheet,
+  SegmentSheet,
+  type Placed,
+} from "./components/Panels.tsx";
 import { CameraSheet } from "./components/CameraSheet.tsx";
 import SearchBar, { type Field } from "./components/SearchBar.tsx";
 import {
   fetchCameras,
   fetchDetections,
   fetchFrameRecord,
+  fetchPath,
   fetchRoute,
   fetchRouteCameras,
   fetchSegment,
@@ -28,6 +35,7 @@ import {
   type FrameRecord,
   type LngLat,
   type Observation,
+  type PathPair,
   type RouteResult,
   type SegmentAssessment,
   type TripStop,
@@ -85,7 +93,11 @@ export default function App() {
   /** Why we have no position, when we have none. Null once we do. */
   const [locationWhy, setLocationWhy] = useState<string | null>(null);
 
+  /** Consolidated router (modules/pathfinding) result — the shipping one. */
+  const [pathPair, setPathPair] = useState<PathPair | null>(null);
+  /** Local in-process router result — only when media-ingest is unreachable. */
   const [result, setResult] = useState<RouteResult | null>(null);
+  const [localFallback, setLocalFallback] = useState(false);
   const [routing, setRouting] = useState(false);
   const [routeError, setRouteError] = useState<string | null>(null);
 
@@ -148,21 +160,40 @@ export default function App() {
   }, []);
 
   // -- routing --------------------------------------------------------------
+  // The consolidated router (real SDOT collisions, camera coverage, live
+  // camera evidence in the weights) is tried first. The in-process router is
+  // strictly a fallback for when media-ingest is not running, and says so.
   useEffect(() => {
     if (!origin || !dest) return;
     let cancelled = false;
     setRouting(true);
     setRouteError(null);
-    fetchRoute(origin, dest)
-      .then((r) => !cancelled && setResult(r))
-      .catch((e) => {
+    (async () => {
+      try {
+        const pair = await fetchPath(origin, dest);
         if (cancelled) return;
+        if (!isUnavailable(pair)) {
+          setPathPair(pair);
+          setResult(null);
+          setLocalFallback(false);
+          return;
+        }
+        setLocalFallback(true);
+        const r = await fetchRoute(origin, dest);
+        if (cancelled) return;
+        setResult(r);
+        setPathPair(null);
+      } catch (e) {
+        if (cancelled) return;
+        setPathPair(null);
         setResult(null);
         setRouteError(
           e instanceof RouteError ? e.message : "Couldn't reach the routing service.",
         );
-      })
-      .finally(() => !cancelled && setRouting(false));
+      } finally {
+        if (!cancelled) setRouting(false);
+      }
+    })();
     return () => {
       cancelled = true;
     };
@@ -173,7 +204,8 @@ export default function App() {
   // only ever surface the handful by that point, however long the walk. With a
   // route active every camera overlooking it is shown, in passing order and
   // uncapped; without one the query falls back to a radius around you.
-  const routeLine = result?.safer.polyline ?? null;
+  // The consolidated router's polyline drives the same corridor query.
+  const routeLine = pathPair?.safer.polyline ?? result?.safer.polyline ?? null;
 
   const focus = useMemo<LngLat>(() => {
     if (userPos) return userPos;
@@ -260,6 +292,13 @@ export default function App() {
     };
   }, [cameras]);
 
+  // Camera ids the consolidated router itself weights (coverage graph, not
+  // the display corridor) — these get the en-route ring on the map.
+  const routeCamIds = useMemo(
+    () => new Set(pathPair?.safer.cameras_en_route ?? []),
+    [pathPair],
+  );
+
   // -- VLM reads for exactly the cameras on screen -------------------------
   useEffect(() => {
     let cancelled = false;
@@ -285,7 +324,7 @@ export default function App() {
     const unplaced: Placed[] = [];
     const mapDetections: { camera: Camera; detection: Placed["detection"] }[] = [];
 
-    const line = result?.safer.polyline;
+    const line = routeLine;
     const userIdx = line && userPos ? nearestIndex(line, userPos) : null;
 
     for (const camera of cameras) {
@@ -309,7 +348,7 @@ export default function App() {
       }
     }
     return { ahead, behind, unplaced, mapDetections };
-  }, [cameras, observations, result, userPos]);
+  }, [cameras, observations, routeLine, userPos]);
 
   // -- interaction ----------------------------------------------------------
   // Knowing where you are changes what a tap means. With a position, you are
@@ -372,6 +411,7 @@ export default function App() {
   // Anything derived from a route is meaningless the moment the pins move.
   useEffect(() => {
     if (!origin || !dest) {
+      setPathPair(null);
       setResult(null);
       setSelectedSegment(null);
       setRouteError(null);
@@ -381,6 +421,7 @@ export default function App() {
   const reset = () => {
     setTrip({ origin: null, dest: null });
     setPickOnMap(null);
+    setPathPair(null);
     setResult(null);
     setSelectedSegment(null);
     setRouteError(null);
@@ -427,8 +468,18 @@ export default function App() {
   const segment =
     result?.segments.find((s) => s.segment_id === selectedSegment) ??
     (fetchedSegment?.segment_id === selectedSegment ? fetchedSegment : null);
+  const pfSegment =
+    pathPair?.safer.segments.find((s) => s.segment_id === selectedSegment) ?? null;
   const camera = cameras.find((c) => c.camera_id === selectedCamera) ?? null;
   const detourPct = result ? Math.round((result.detour_ratio - 1) * 100) : 0;
+
+  // Bucket counts for the consolidated route's legend, evidence attached via
+  // the segment sheet — no number renders without a way to open its basis.
+  const buckets = useMemo(() => {
+    const b = { low: 0, medium: 0, high: 0 };
+    for (const s of pathPair?.safer.segments ?? []) b[s.risk_bucket] += 1;
+    return b;
+  }, [pathPair]);
 
   return (
     <div className={`app ${trip.origin || trip.dest ? "has-trip" : ""}`}>
@@ -437,10 +488,13 @@ export default function App() {
         layer={layer}
         pickingStop={pickOnMap !== null}
         result={result}
+        path={pathPair}
         origin={origin}
         dest={dest}
         userPos={userPos}
         cameras={cameras}
+        routeCamIds={routeCamIds}
+        refuges={pathPair?.safer.refuges_en_route ?? []}
         detections={mapDetections}
         selectedSegment={selectedSegment}
         selectedCamera={selectedCamera}
@@ -505,7 +559,7 @@ export default function App() {
         </div>
       )}
 
-      <div className={`dock glass ${result || routeError || routing ? "" : "is-empty"}`}>
+      <div className={`dock glass ${result || pathPair || routeError || routing ? "" : "is-empty"}`}>
         {!origin && !dest && (
           <p className="hint">
             {userPos
@@ -522,8 +576,87 @@ export default function App() {
         {routing && <p className="hint">Finding a route…</p>}
         {routeError && <p className="banner banner-refuse">{routeError}</p>}
 
+        {pathPair && !routing && (
+          <>
+            {pathPair.safer.detour_cap_hit && (
+              <p className="banner banner-flag">
+                Every lower-risk detour ran more than 25% longer than the direct walk, so the
+                direct route is shown.
+              </p>
+            )}
+            <div className="routes">
+              <div className="route-card is-primary">
+                <span className="route-tag">Recommended</span>
+                <span className="route-time">
+                  {Math.max(1, Math.round(pathPair.safer.eta_min))}
+                  <small> min</small>
+                </span>
+                <span className="route-len mono">
+                  {(pathPair.safer.length_m / 1000).toFixed(1)} km
+                </span>
+              </div>
+              <div className="route-card">
+                <span className="route-tag">Direct</span>
+                <span className="route-time">
+                  {Math.max(1, Math.round(pathPair.shortest.eta_min))}
+                  <small> min</small>
+                </span>
+                <span className="route-len mono">
+                  {(pathPair.shortest.length_m / 1000).toFixed(1)} km
+                </span>
+              </div>
+            </div>
+            <div className="pf-meta">
+              <span className="pf-buckets" title={pathPair.safer.risk_basis}>
+                <span className="pf-bucket">
+                  <i className="pf-dot dot-low" />
+                  {buckets.low}
+                </span>
+                <span className="pf-bucket">
+                  <i className="pf-dot dot-medium" />
+                  {buckets.medium}
+                </span>
+                <span className="pf-bucket">
+                  <i className="pf-dot dot-high" />
+                  {buckets.high}
+                </span>
+              </span>
+              {pathPair.safer.live.incorporated ? (
+                <span className="chip chip-live">live v{pathPair.safer.version}</span>
+              ) : (
+                <span
+                  className="chip chip-flag"
+                  title={`This route is ${pathPair.safer.live.basis}. Pending layers: ${
+                    pathPair.safer.live.layers_pending.join(", ") || "none"
+                  }.`}
+                >
+                  live pending
+                </span>
+              )}
+              <span className="pf-night">
+                {pathPair.safer.night ? "night weights" : "daylight weights"}
+              </span>
+            </div>
+            <p className="summary">{pathPair.safer.evidence_summary}</p>
+            {pathPair.safer.refuges_en_route.length > 0 && (
+              <p className="hint">
+                {pathPair.safer.refuges_en_route.length} open business
+                {pathPair.safer.refuges_en_route.length === 1 ? "" : "es"} along the way — the
+                green dots.
+              </p>
+            )}
+            {!pfSegment && <p className="hint">Tap the route to see what shaped each block.</p>}
+          </>
+        )}
+
         {result && !routing && (
           <>
+            {localFallback && (
+              <p className="banner banner-flag">
+                Consolidated router unreachable — this route came from the in-process fallback:
+                OpenStreetMap tags only, no collision or camera evidence in the weights.
+              </p>
+            )}
             {result.over_cap && (
               <p className="banner banner-flag">
                 The lower-risk route is {detourPct}% longer, past the{" "}
@@ -579,6 +712,13 @@ export default function App() {
       </button>
 
       {segment && <SegmentSheet segment={segment} onClose={() => setSelectedSegment(null)} />}
+      {pfSegment && pathPair && (
+        <PathSegmentSheet
+          segment={pfSegment}
+          live={pathPair.safer.live}
+          onClose={() => setSelectedSegment(null)}
+        />
+      )}
 
       {camera && (
         <CameraSheet
