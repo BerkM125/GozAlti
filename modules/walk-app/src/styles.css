@@ -1130,11 +1130,6 @@ button {
   overflow: hidden;
 }
 
-.cam-caption.is-muted {
-  color: var(--fg-mute);
-  font-style: italic;
-}
-
 .cam-count {
   font-size: var(--text-xs);
   color: var(--fg-mute);

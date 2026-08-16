@@ -178,7 +178,7 @@ Raster tiles were tried first and dropped: they carry no building geometry to ex
 ## Not covered yet
 
 - Live `Alert` banner and map pulse. The SSE endpoint is wired and streams heartbeats, but `modules/synthesis` does not exist, so there is nothing to push. No alert is fabricated to fill the gap.
-- Detections and captions need a VLM behind media-ingest. Wiring `VLM_BASE_URL` at the local Ollama does not currently work: `qwen3-vl:8b` is a reasoning model and returns its answer in `reasoning` with an empty `content`, which media-ingest's parser reads as no result. Until that is resolved with the media-ingest owner, every camera honestly reports "no camera read yet"; nothing is fabricated to fill the gap.
+- Detections and captions need a VLM behind media-ingest. Wiring `VLM_BASE_URL` at the local Ollama does not currently work: `qwen3-vl:8b` is a reasoning model and returns its answer in `reasoning` with an empty `content`, which media-ingest's parser reads as no result. Until that is resolved with the media-ingest owner, an unread camera simply shows no caption and no dots - the UI stays quiet rather than narrating the gap, and nothing is fabricated to fill it.
 - Bearings are `null` for every camera on a fresh `ingest.graph` build, so there are no view cones and every detection would land in "seen, but not placed". That is invariants #3 and #4 working, not a bug. Resolving them needs media-ingest's `POST /api/orient/{cid}`.
 - Collision and OSINT evidence (§6.3, and the `collision` evidence type) are not wired - synthesis owns those.
 - The JS bundle is ~1.87 MB (542 kB gzipped), dominated by MapLibre and hls.js. Fine over a tunnel, worth code-splitting if it matters.

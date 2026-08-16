@@ -55,33 +55,19 @@ export function CameraSheet({
 
       {observation?.caption && <p className="lede">{observation.caption}</p>}
 
-      {detections.length > 0 ? (
+      {/* Explanatory notes only when there is something to explain: an unread
+          camera or an unresolved bearing just shows its frame, quietly. Not
+          drawing dots for either is invariant #3/#4 doing its job; the sheet
+          does not narrate it. */}
+      {detections.length > 0 && (
         <p className="note">
           {people} {people === 1 ? "person" : "people"} and {detections.length - people} other{" "}
           {detections.length - people === 1 ? "object" : "objects"} in this frame. Dots sit where
           the camera read them.
         </p>
-      ) : (
-        <p className="note">
-          {observation === null
-            ? "This camera has not been read yet, so nothing is marked on the frame. That is not the same as the street being empty."
-            : "The camera read returned no objects."}
-        </p>
       )}
 
-      {/* Invariant #3/#4: an unresolved bearing means nothing this camera sees
-          can be placed, and we say so rather than leaving the map silent. */}
-      {(camera.bearing_deg === null || camera.bearing_conf === null) && (
-        <p className="note note-flag">
-          This camera's direction is unresolved, so what it sees cannot be placed on the map. No
-          position is estimated for it.
-        </p>
-      )}
-
-      <p className="note">
-        Public SDOT feed, served through media-ingest. Snapshots refresh no faster than once a
-        minute.
-      </p>
+      <p className="note">Public SDOT feed, served through media-ingest.</p>
     </Sheet>
   );
 }

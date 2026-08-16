@@ -211,13 +211,9 @@ export default function CameraTile({
           {/* The intersection is what a walker recognises; the id is provenance. */}
           <span className="cam-where">{camera.desc ?? camera.street ?? "location unknown"}</span>
           <span className="cam-id mono">{camera.camera_id}</span>
-          {observation?.caption ? (
-            <span className="cam-caption">{observation.caption}</span>
-          ) : (
-            <span className="cam-caption is-muted">
-              {observation === null ? "no camera read yet" : "no description returned"}
-            </span>
-          )}
+          {/* Only a real caption earns a line; an unread camera stays quiet
+              rather than narrating its own absence on every tile. */}
+          {observation?.caption && <span className="cam-caption">{observation.caption}</span>}
           {detections.length > 0 && (
             <span className="cam-count mono">
               {detections.filter((d) => familyOf(d.label) === "person").length} people ·{" "}
