@@ -16,15 +16,19 @@ import sys
 import urllib.error
 import urllib.request
 
-SID = os.environ.get("TWILIO_SID", "")
-TOKEN = os.environ.get("TWILIO_TOKEN", "")
+SID = os.environ.get("TWILIO_SID") or os.environ.get("TWILIO_ACCOUNT_SID") or ""
+KEY = os.environ.get("TWILIO_API_KEY") or os.environ.get("TWILIO_KEY_SID") or ""
+SECRET = os.environ.get("TWILIO_API_SECRET") or os.environ.get("TWILIO_CLIENT_SECRET") or ""
+TOKEN = os.environ.get("TWILIO_TOKEN") or os.environ.get("TWILIO_AUTH_TOKEN") or ""
+# API key pair if present, otherwise the account SID and auth token.
+USER, PW = (KEY, SECRET) if (KEY and SECRET) else (SID, TOKEN)
 FROM = os.environ.get("TWILIO_FROM", "")
 TO = os.environ.get("CALLING_CONTACT_NUMBER", "")
 
 
 def get(path):
     url = f"https://api.twilio.com/2010-04-01/Accounts/{SID}/{path}"
-    auth = base64.b64encode(f"{SID}:{TOKEN}".encode()).decode()
+    auth = base64.b64encode(f"{USER}:{PW}".encode()).decode()
     req = urllib.request.Request(url, headers={"Authorization": f"Basic {auth}"})
     try:
         with urllib.request.urlopen(req, timeout=15) as r:
@@ -36,11 +40,15 @@ def get(path):
 
 
 def main():
-    if not (SID and TOKEN):
-        print("TWILIO_SID / TWILIO_TOKEN not set — put them in .env")
+    if not SID:
+        print("TWILIO_SID (the AC... account SID) not set — put it in .env")
         return 1
+    if not PW:
+        print("No credential — set TWILIO_TOKEN, or TWILIO_API_KEY + TWILIO_API_SECRET")
+        return 1
+    print(f"auth    : {'API key ' + KEY[:8] + '...' if KEY and SECRET else 'account SID + auth token'}")
 
-    auth = base64.b64encode(f"{SID}:{TOKEN}".encode()).decode()
+    auth = base64.b64encode(f"{USER}:{PW}".encode()).decode()
     req = urllib.request.Request(f"https://api.twilio.com/2010-04-01/Accounts/{SID}.json",
                                  headers={"Authorization": f"Basic {auth}"})
     try:

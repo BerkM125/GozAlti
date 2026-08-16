@@ -32,7 +32,9 @@ CONFIGURATION — all optional, arm what you have
   TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID   from @BotFather, ~2 minutes, free
   NTFY_TOPIC                             no account at all, https://ntfy.sh
   DISCORD_WEBHOOK_URL                    channel settings -> integrations
-  TWILIO_SID, TWILIO_TOKEN, TWILIO_FROM  trial credit; trial can only dial VERIFIED numbers
+  TWILIO_SID + TWILIO_TOKEN              account SID and auth token, OR
+  TWILIO_SID + TWILIO_API_KEY/SECRET     account SID and an API key pair
+  TWILIO_FROM                            a number the account owns; trial credit buys one
   CALLING_CONTACT_NUMBER                 default destination when the caller sends no "to"
 
 SAFETY
@@ -145,18 +147,40 @@ def send_discord(msg, **_):
                 {"Content-Type": "application/json"})
 
 
-def send_twilio(msg, to="", **_):
-    sid = os.environ.get("TWILIO_SID")
-    tok = os.environ.get("TWILIO_TOKEN")
-    frm = os.environ.get("TWILIO_FROM")
-    if not (sid and tok and frm and to):
+def twilio_auth():
+    """Twilio accepts two credential pairs, and the difference trips people up.
+
+      * Account SID + Auth Token — the pair on the console home page.
+      * API Key SID (SK...) + its Secret — revocable, and the better practice, but the
+        REST path still addresses the ACCOUNT, so the Account SID is required either way.
+
+    Returns (account_sid, basic_auth_user, basic_auth_password) or None.
+    """
+    acct = os.environ.get("TWILIO_SID") or os.environ.get("TWILIO_ACCOUNT_SID") or ""
+    key = os.environ.get("TWILIO_API_KEY") or os.environ.get("TWILIO_KEY_SID") or ""
+    secret = os.environ.get("TWILIO_API_SECRET") or os.environ.get("TWILIO_CLIENT_SECRET") or ""
+    token = os.environ.get("TWILIO_TOKEN") or os.environ.get("TWILIO_AUTH_TOKEN") or ""
+    if not acct:
         return None
+    if key and secret:
+        return acct, key, secret
+    if token:
+        return acct, acct, token
+    return None
+
+
+def send_twilio(msg, to="", **_):
+    creds = twilio_auth()
+    frm = os.environ.get("TWILIO_FROM")
+    if not (creds and frm and to):
+        return None
+    sid, user, pw = creds
     # <Say> reads the report aloud; the loop repeats it once because a person answering
     # a robocall typically misses the first sentence.
     safe = (msg.replace("&", "and").replace("<", "").replace(">", ""))
     twiml = f"<Response><Pause length='1'/><Say voice='Polly.Joanna' loop='2'>{safe}</Say></Response>"
     body = urllib.parse.urlencode({"To": to, "From": frm, "Twiml": twiml}).encode()
-    auth = base64.b64encode(f"{sid}:{tok}".encode()).decode()
+    auth = base64.b64encode(f"{user}:{pw}".encode()).decode()
     return post(f"https://api.twilio.com/2010-04-01/Accounts/{sid}/Calls.json", body, {
         "Authorization": f"Basic {auth}",
         "Content-Type": "application/x-www-form-urlencoded",
@@ -239,8 +263,7 @@ def armed():
     """Which channels have enough configuration to be worth trying."""
     return {
         "callmebot": bool(os.environ.get("CALLMEBOT_USER")),
-        "twilio": bool(os.environ.get("TWILIO_SID") and os.environ.get("TWILIO_TOKEN")
-                       and os.environ.get("TWILIO_FROM")),
+        "twilio": bool(twilio_auth() and os.environ.get("TWILIO_FROM")),
         "telegram": bool(os.environ.get("TELEGRAM_BOT_TOKEN") and os.environ.get("TELEGRAM_CHAT_ID")),
         "ntfy": bool(os.environ.get("NTFY_TOPIC")),
         "discord": bool(os.environ.get("DISCORD_WEBHOOK_URL")),
