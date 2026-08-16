@@ -52,22 +52,56 @@ people; sustained throughput survives the live demo sweep.
   after every prompt change.
 - Never hallucinate: prefer `no_people`/low confidence over invented detections.
 
-## Quickstart — `lab/` (prompt + model workbench)
+## Quickstart
 
-Code is edited here; it runs on the Spark box next to its ollama server. Copy
-`lab/` to any scratch dir on the box (`rsync -az lab/ box:~/junk/vlm/`) — stdlib
-only, no venv needed (Pillow for `--draw`).
+Edit on the Mac, `git push`, then on the box `cd ~/GozAlti && git pull`. Never edit
+on the box. GPU work runs in the vLLM container (torch + torchvision + CUDA + cv2 5.0
+already inside); everything else is stdlib.
 
 ```bash
-./ask.py samples/crowd__CMR-0039*.jpg -f prompts/caption.txt --json                              # production schema
-./ask.py samples/crowd__CMR-0039*.jpg -f prompts/people.txt --json --draw --edge 1456 -n 1500    # boxes + dots -> out/
-./ask.py samples/*.jpg -m qwen3-vl:8b -f prompts/caption.txt --json                              # other model
-./ask.py -h                                                                                       # all flags
+# on the box, from modules/vlm/lab/
+./run_box.sh detect  'samples/*.jpg'          # detector: boxes, vehicles, per-sweep ranks   ~64 ms/frame
+./insight.py         'samples/*.jpg'          # VLM reads the situation, counts injected     ~6.3 s/frame
+./assist.py FRAME --mode unmatched            # CV picks a region -> crop -> VLM close-up     ~2.3 s/crop
+./video.py CLIP.mp4                           # VSS shape: chunk -> caption -> summarize -> Q&A
+./verdict_check.py insight_*.jsonl            # gate: fails if the VLM asserted safety/danger
+./status.py --port 8090                       # live processing dashboard
+./serve_viewer.sh                             # offline results viewer for judges
 ```
 
-- `samples/` — 23 real SDOT frames (crowd / few / blocked / construction / night / wet / empty)
-  with the Mac's Qwen2.5-VL reads in `mac_reads.json` as reference.
-- `prompts/caption.txt` — production schema harvested from `experiments/safe-walk/safewalk/vision.py`;
-  `prompts/people.txt` — one box per person (`bbox_2d`), the source of `cx`/`cy` dots.
-- Every call is appended to `log.jsonl`; overlays go to `out/` (both gitignored).
-- Findings (latency, the 1456-px grounding rule, output shape) in `lab/NOTES.md`.
+| file | what |
+|---|---|
+| `detlib.py` | shared detector: load / infer / parse / score / rank / draw |
+| `detect.py` | detector over stills; `--arch fasterrcnn\|maskrcnn\|keypointrcnn`, `--min-size` |
+| `insight.py` | VLM scene reading, detector counts injected as facts it must not recount |
+| `assist.py` | CV region finders (`static` background-subtract, `unmatched` proposals) → crop → VLM |
+| `video.py`, `track.py` | clip pipeline + centroid/IoU tracking for unique-people counts |
+| `verdict_check.py` | mechanical guard: no safety/danger/judgement language ships |
+| `bench_detectors.py` | same protocol across detectors, split by resolution bucket |
+| `status.py`, `viewer/` | live ops dashboard; offline results viewer |
+| `prompts/` | `insight` (scene), `scene`, `caption`, `people`/`points` (grounding), `chunk_caption`, `clip_summary`, `clip_qa` |
+| `samples/` | 23 real SDOT frames across crowd/blocked/construction/night/wet/empty, `mac_reads.json` as reference |
+
+Findings live in `../ARCHITECTURE.md` (why detector+VLM), `../CAPABILITIES.md` (what each
+model buys), `../VSS-PLAN.md` (VSS positioning + the Cosmos bench), `MODELS.md` and
+`NOTES.md` (raw numbers). Artifacts (`*.jsonl`, `*_out/`, `video_out/`) are gitignored.
+
+## Known design issue: `walkway_status` conflates two questions
+
+The enum is `clear | narrowed | blocked | no_sidewalk | unclear`, which mixes:
+
+- **does a sidewalk exist here** — a permanent property of the street, and
+  **SDOT already publishes it**: `experiments/safe-walk/data/static/sidewalks.geojson`
+  carries 3,148 downtown segments with `sidewalk_ratio` and `sidewalk_condition`, already
+  joined onto the street graph in `graph.py`.
+- **is it passable right now** — transient, and the only part a camera can answer.
+
+So the VLM currently spends ~6 s/frame re-deriving a fact the city already published, and
+gets it wrong sometimes: Cosmos-Reason1 called `I5UnionRev`, a reversible freeway lane,
+`clear`. Saying "clear" about a freeway segment is the worst single error this system can
+make to a pedestrian.
+
+**Fix**: take existence from the SDOT inventory, and narrow the VLM's question to
+obstruction only — `clear | narrowed | blocked | unclear`, plus what is doing the
+obstructing. Deferred, not done; it needs a `SegmentAssessment` conversation with
+synthesis since existence would then arrive from the static layer instead of ours.

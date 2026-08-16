@@ -147,6 +147,15 @@ vs 26 on the same frame). Its strength is specifics — served on vLLM it answer
 what is blocking the path" with coordinates rather than a paragraph. Ask it *what and
 where within a crop*, never *how many across a scene*.
 
+## Design decisions taken (grill session, Sat night)
+
+| decision | choice | why |
+|---|---|---|
+| what the camera score *is* | the **live term** of safe-walk's existing `static_risk()`, not a new number | the base is SDOT's collision record — a fact a judge can check. Camera evidence moves it within a cap, as `live.py` already does. A standalone camera score is unfalsifiable and breaks the no-invented-scores rule. |
+| what earns an expensive model | **anomaly-triggered + route on demand** | detector on all 646 every sweep (42 s); promote to VLM on rank-delta vs last sweep, appear-and-stop CV, or confidence collapse. ~20–60 VLM calls/sweep instead of 646 (68 min, stale before it finishes). |
+| who converts evidence → risk | **`vlm` emits facts, `synthesis` owns the weights table, `harness` maps camera→segment** | keeps "the VLM never judges" literally true, puts the weights where teammates can see and tune them, and needs no §6.2 contract change. |
+| how much history the trigger uses | **previous sweep only** | the archive is ~10 h from one day, dominated by night; safe-walk's own `baseline.py` refuses to claim "unusual for this hour" from it. Rank-delta + appear-and-stop need one sweep of memory and are honest on day one. |
+
 ## Honest gaps
 
 - **No ground truth.** Every comparison is model-vs-model plus eyeballed overlays. ~50
