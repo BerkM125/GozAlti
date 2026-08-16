@@ -17,6 +17,17 @@ export const WALK_M_PER_MIN = 80; // ~1.33 m/s
  */
 export const FRESH_MAX_AGE_S = 300;
 
-/** Cameras shown in the "near you" panel. */
-export const NEARBY_CAMERA_LIMIT = 3;
+/**
+ * Cameras shown when there is no route, ranked by distance from you.
+ * With a route active there is no cap: every camera watching the way you are
+ * going is shown, however long the walk.
+ */
+export const NEARBY_CAMERA_LIMIT = 12;
 export const NEARBY_RADIUS_M = 500;
+
+/**
+ * How far off the route a camera may sit and still count as watching it.
+ * Matches the server default; downtown blocks are 80-120 m, so this catches
+ * the cameras on your street and on the ones immediately either side.
+ */
+export const ROUTE_CORRIDOR_M = 180;
