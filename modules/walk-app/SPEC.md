@@ -21,7 +21,11 @@ Which router the demo uses is a call for the team, not something this module sho
 - **Pedestrian graph** built from `experiments/surukamera/data/osm_ways.json`, the Overpass dump already committed to the repo. 5,435 junctions and 6,579 block-level edges for the downtown bbox, built in ~90 ms with no network call.
 - **Dijkstra and A\***, both over the same relaxation loop. A* uses straight-line distance, which is admissible because edge cost is never below edge length. Verified to return the same optimum as Dijkstra while expanding 18 junctions instead of 429.
 - **Route API** on `:8020`, `GET`/`POST /api/route`, returning SPEC.md §6.6 `Route` shapes plus per-block §6.4 `SegmentAssessment`s.
-- **Mobile UI**: glass panels over a hand-written vector basemap, a 2D/3D toggle with real extruded buildings, tap-to-route, tap-a-block evidence sheet, camera panel, "around you" panel. Light theme only.
+- **Destination search**, offline.
+  `GET /api/geocode?q=` answers from the walk graph itself: one entry per named street, one per junction where two named streets cross (3,082 places), with street abbreviations ("st", "3rd", "ne") and cross-street queries ("3rd & pine", "pike and 1st") normalised in `server/search.ts`.
+  No external geocoder, no API key, no network call, and every result is by construction routable.
+- **Mobile UI**: a Google-Maps-style trip planner (search a destination, editable start and end, swap, "Choose on the map"), glass panels over a hand-written vector basemap, a 2D/3D toggle with real extruded buildings, tap-to-route, tap-a-block evidence sheet, a bottom "Live feeds" tab opening a vertically scrolled camera feed, and an "around you" panel.
+  Light theme only, Inter (self-hosted, `public/fonts/`) as the one type family on every device.
 - **media-ingest proxy** for cameras, frames, HLS and detections, degrading to an explicit `{ok:false, why}` when it is not running.
 
 ## Cost model
@@ -37,7 +41,11 @@ Which router the demo uses is a call for the team, not something this module sho
 | Lighting | 0.20 | `lit` |
 | Crossing | 0.18 | `lanes` |
 
-Untagged inputs fall back to a stated neutral default and are marked `inferred`, which the UI renders as "not mapped in OpenStreetMap" rather than passing off as measured. About 72% of downtown blocks have at least one inferred component, almost all of them `lit`.
+Untagged inputs fall back to a stated neutral default and are marked `inferred`, which the UI renders as a "not mapped" chip rather than passing off as measured. About 72% of downtown blocks have at least one inferred component, almost all of them `lit`.
+
+The observed `risk` spread across the 6,579 blocks is 0.08-0.67, with 74% of blocks between 0.15 and 0.35.
+The UI's weight ramp therefore interpolates over 0.08-0.56 (`src/palette.ts` `WEIGHT_STOPS`, mirrored as `--ramp` in `theme.css`) rather than the nominal [0,1], which would paint the whole city one colour.
+Each `SegmentAssessment.evidence` item now also carries its component `score` (2 dp), which the sheet's per-input dots colour from the same ramp.
 
 **Slope is deliberately absent.** Seattle hills matter for walking, but this dump carries no elevation and a fabricated grade would be worse than none.
 
@@ -79,7 +87,10 @@ Without it the app still routes; the top bar shows a "cameras offline" chip.
 |---|---|
 | `GET /api/health` | graph size + whether media-ingest is reachable |
 | `GET /api/route?from=lat,lon&to=lat,lon&algorithm=astar\|dijkstra` | `RouteResult` |
+| `GET /api/geocode?q=pike+st` | `{query, results:[{label, kind, lat, lon}]}` - streets and intersections from the walk graph, offline |
 | `POST /api/route` | same, body `{origin:[lon,lat], dest:[lon,lat], algorithm?}` |
+| `GET /api/blocks` | GeoJSON FeatureCollection of every walkable block, `{segment_id, risk}` per feature; built once at boot, pre-gzipped (~300 kB). Feeds the map's routing-weight layer |
+| `GET /api/segment/:segment_id` | one block's §6.4 `SegmentAssessment`, for the tap-anywhere evidence sheet. 404 for an unknown id |
 | `GET /api/cameras?lat&lon&radius_m` (or `?street=`) | §6.7 `CameraConvergence`, built here from media-ingest |
 | `POST /api/cameras/route` | every camera watching a route, in passing order. Body `{polyline:[[lat,lon],…], radius_m?}` |
 | `GET /api/detections/:cid` | media-ingest's live-state record, proxied |
@@ -124,14 +135,16 @@ The field names, types and nullability are unchanged - `live_hls` is still `null
 
 ## Design rules the UI enforces
 
-- **No aggregate safety score is ever shown.** `risk` is a routing weight (SPEC §6.4) and stays server-side. The sheet shows the four inputs and the tag each came from.
-- **Colour budget is four meanings**, using Apple's system palette verbatim: blue `#007AFF` is chrome only and never carries meaning on the map, green `#34C759` is the recommendation, orange `#FF9500` is flagged or unmapped, red `#FF3B30` is reserved for live alerts and refusals. Camera markers are neutral so a real alert stays unmistakable.
+- **`risk` is shown as what it is - a routing weight - and never as a safety verdict.** The default map layer colours every block by its weight, the legend and the block sheet's scale bar say "routing weight" (never "safety" or "danger score"), no aggregate number is printed anywhere, and tapping any block shows where it sits on the scale plus the four inputs behind it.
+  Documented deviation: root SPEC §6.4 still says everything shown to a user comes from `evidence[]`, never bare `risk`; the module owner is raising that change with the team, and the shared file is not edited from this module.
+- **Colour carries fixed meanings**: blue `#007AFF` is the recommended route and the chrome. The muted green-to-brick weight ramp (`palette.ts WEIGHT_STOPS` / `--ramp`) carries routing weight and nothing else. Green `#34C759` marks only a live/healthy camera feed. Orange `#FF9500` is flagged or unmapped in UI fills. Solid red `#FF3B30` fills stay reserved for live alerts and refusals. Camera markers are neutral so a real alert stays unmistakable.
 - **Only one camera streams live at a time.** Tiles in the list are snapshots; live HLS plays only in the full-screen viewer, for the one camera the user opened. Each playing tile is a continuous viewer on SDOT's stream host, and nothing upstream throttles that, so the count is held at one. A stream-capable camera showing a still says so and offers `▶ LIVE`; it never shows `LIVE` over a still frame.
 - **Every camera image carries an age badge**, read from the §6.1 `FrameRecord` (`GET /api/frame/:cid/record`), not from the VLM. A camera with no VLM read still has a timestamped frame, so the badge works with no model in the loop: `LIVE` while playing, else `STREAM 6s` / `SNAP 45s` / `CACHED 12m` naming the frame's `source`, `NO FRESH FRAME` when `stale`, `AGE UNKNOWN` when no record has arrived. Snapshot refresh is 60 s, matching media-ingest's per-camera floor.
 - **Detections with no `est` are never placed on the map.** They appear in a "seen, but not placed" group that says the camera's bearing is unresolved.
 - **View cones** are drawn only for cameras with a resolved bearing, at opacity scaled by `bearing_conf`.
 - **"Ahead" and "behind"** are measured along the route, not from a compass, because the browser cannot get a reliable heading without a permission prompt this app does not need. With no route active the panel says the split is not knowable.
 - **The camera list never claims to be "near you" when it is not.** Without a position it is titled "Cameras downtown" and states why, rather than passing downtown cameras off as local ones.
+- **Search never invents places.** Suggestions come only from the routable walk graph, so a match can always be walked to; "Your location" is offered only when a position actually exists, and an empty result says the downtown walking map has no match rather than pretending to search the whole city.
 
 ## Location
 
@@ -140,7 +153,11 @@ The MapLibre `GeolocateControl` stays for re-centring.
 The first fix eases the map to you and drops a blue dot; later updates do not move the camera, so they cannot fight your panning or yank a framed route off screen.
 
 With a position known, **one tap routes**: the tap sets the destination and the walk starts from you.
-A second tap re-anchors the start. With no position the old tap-start-then-tap-destination flow is unchanged.
+Searching a destination does the same: picking a place fills the destination and the start defaults to "Your location" when a position exists, or stays an explicit "Set your start" when it does not - a start is never guessed.
+With a full route on screen, a further tap re-anchors the start and **keeps the destination**: the destination is the part of the trip the user typed, so a stray tap must not throw it away.
+Clearing the whole trip is the planner's explicit close button.
+The planner's "Choose on the map" arms the next tap to fill exactly that field instead.
+With no position the old tap-start-then-tap-destination flow is unchanged.
 
 When the position cannot be had, the app falls back to downtown for the camera query and says so.
 It distinguishes the causes, because one of them has a fix:
@@ -166,6 +183,21 @@ Raster tiles were tried first and dropped: they carry no building geometry to ex
 - Collision and OSINT evidence (§6.3, and the `collision` evidence type) are not wired - synthesis owns those.
 - The JS bundle is ~1.87 MB (542 kB gzipped), dominated by MapLibre and hls.js. Fine over a tunnel, worth code-splitting if it matters.
 - Downtown OSM tagging is uniform enough that the recommended and direct routes are often identical. That is an honest result, not a bug: the divergence this product is built on comes from the live camera layer, which needs media-ingest and the VLM running.
+
+## Verified 2026-08-16 - destination search and the UI refresh
+
+Run in Chromium at 414x896 against the production build with media-ingest live:
+
+- `bun run smoke` passes 13 assertions, the 5 new ones covering search: "pike st" resolves to Pike Street, "3rd and pine" resolves to the Pine Street & 3rd Avenue intersection, that result routes, sub-2-char queries return nothing, all coordinates finite.
+- Typing "pike pl" in the destination bar shows ranked suggestions with kind labels; picking one fills the planner and (with no position available) the app asks for a start instead of guessing one.
+- Setting the start via search produces a real 1.5 km / 19 min recommended route vs 1.3 km / 17 min direct, camera markers along it, and the feeds tab count moving 12 -> 31.
+- Swap reverses the stops and re-routes; a map tap with a route active re-anchors the start as "Dropped pin" and keeps the searched destination; "Choose on the map" arms exactly one tap for exactly the chosen field, with a cancellable hint pill.
+- The feeds tab expands into the vertical feed: full-width tiles, real frames, age badges, "31 watching your way · in passing order"; opening a camera plays exactly one live HLS stream.
+- "Pike Place" returns no result because the OSM dump has no walkable way of that name in the bbox - an honest gap, stated in the empty state, not papered over.
+- Console is clean apart from Chromium's software-WebGL warning.
+
+The horizontal camera carousel is gone: feeds scroll vertically in the sheet, which is the thumb direction on a phone.
+Search is served from the graph on `:8020`; no request leaves the box for it.
 
 ## Verified 2026-08-16 - route camera coverage
 

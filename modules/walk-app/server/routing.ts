@@ -239,7 +239,7 @@ export function astar(
 // Contract shapes (SPEC.md §6.4, §6.6)
 // ---------------------------------------------------------------------------
 
-export type EvidenceItem = { type: string; ref: string; detail: string };
+export type EvidenceItem = { type: string; ref: string; detail: string; score: number };
 
 export type SegmentAssessment = {
   segment_id: string;
@@ -297,15 +297,18 @@ function stitchPolyline(path: Edge[], source: number): [number, number][] {
 
 const totalLength = (path: Edge[]) => path.reduce((m, e) => m + e.length_m, 0);
 
-function assess(g: WalkGraph, path: Edge[]): SegmentAssessment[] {
+export function assess(g: WalkGraph, path: Edge[]): SegmentAssessment[] {
   const now = new Date().toISOString();
   return path.map((e) => ({
     segment_id: e.segment_id,
     risk: Number(e.risk.toFixed(3)),
     evidence: e.evidence.map((v) => ({
       type: v.type,
+      // "osm:untagged" is the whole inferred signal on the wire; the UI turns
+      // it into a "not mapped" chip rather than a sentence baked into detail.
       ref: v.ref ?? "osm:untagged",
-      detail: v.inferred ? `${v.detail} (not mapped in OpenStreetMap)` : v.detail,
+      detail: v.detail,
+      score: Number(v.score.toFixed(2)),
     })),
     updated_at: now,
     name: describeEdge(g, e),

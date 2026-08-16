@@ -75,28 +75,259 @@ button {
     var(--shadow-1);
 }
 
-/* -------------------------------------------------------------------- chrome */
+/* ------------------------------------------------------------ search & trip */
 
-.topbar {
+/*
+ * The destination bar owns the top of the screen: one rounded field when idle,
+ * the two-stop planner once a trip exists, and the suggestion dropdown under
+ * either. Everything hangs off one absolutely-positioned area so the map keeps
+ * every gesture around it.
+ */
+.search-area {
   position: absolute;
   z-index: 4;
   top: calc(env(safe-area-inset-top) + 10px);
   left: var(--edge);
-  /* Clear of the control rail: inset + one round control + a gap. */
-  right: calc(var(--edge) + var(--tap) + var(--sp-3));
+  right: var(--edge);
+  display: grid;
+  gap: var(--sp-2);
+}
+
+.search-pill {
   display: flex;
   align-items: center;
   gap: var(--sp-2);
-  min-height: var(--tap);
-  padding: var(--sp-2) var(--sp-2) var(--sp-2) var(--sp-4);
+  min-height: 48px;
+  padding: var(--sp-1) var(--sp-2) var(--sp-1) var(--sp-4);
   border-radius: var(--r-full);
 }
 
-.wordmark {
+.search-glyph {
+  display: grid;
+  place-items: center;
+  color: var(--fg-mute);
+  flex: none;
+}
+
+.search-input,
+.planner-input {
   flex: 1;
+  min-width: 0;
+  border: none;
+  background: none;
+  font: inherit;
   font-size: var(--text-lg);
-  font-weight: 600;
-  letter-spacing: var(--track-tight);
+  color: var(--fg);
+  outline: none;
+}
+
+.search-input::placeholder,
+.planner-input::placeholder {
+  color: var(--fg-mute);
+}
+
+/* WebKit decorates type=search with its own cancel button; the pill has one. */
+.search-input::-webkit-search-cancel-button,
+.planner-input::-webkit-search-cancel-button {
+  display: none;
+}
+
+/* -- the two-stop planner -------------------------------------------------- */
+
+.planner {
+  display: flex;
+  align-items: stretch;
+  gap: var(--sp-2);
+  padding: var(--sp-2) var(--sp-2) var(--sp-2) var(--sp-4);
+  border-radius: var(--r-xl);
+}
+
+/* Start dot, dotted spine, destination pin - the classic trip glyph column. */
+.planner-rails {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 15px 0;
+}
+
+.rail-dot {
+  width: 9px;
+  height: 9px;
+  flex: none;
+  border-radius: var(--r-full);
+}
+
+.rail-start {
+  background: #fff;
+  box-shadow: inset 0 0 0 2.5px var(--fg-dim);
+}
+
+.rail-end {
+  background: var(--fg);
+}
+
+.rail-line {
+  flex: 1;
+  width: 0;
+  margin: 3px 0;
+  border-left: 2px dotted var(--line);
+}
+
+.planner-stops {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+}
+
+.planner-stop,
+.planner-input {
+  display: block;
+  width: 100%;
+  min-height: 38px;
+  padding: 0 var(--sp-2);
+  border: none;
+  background: none;
+  text-align: left;
+  font-size: var(--text-base);
+  font-weight: 500;
+  color: var(--fg);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  border-radius: var(--r-sm);
+}
+
+.planner-stop:active {
+  background: var(--fill-soft);
+}
+
+/* An unset stop is an invitation, not a value. */
+.planner-stop.is-unset {
+  color: var(--fg-mute);
+  font-weight: 400;
+}
+
+.planner-stops > :first-child {
+  box-shadow: inset 0 -1px 0 var(--line);
+}
+
+.planner-input {
+  font-size: var(--text-base);
+}
+
+.planner-side {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: var(--sp-1) 0;
+}
+
+/* -- suggestions ------------------------------------------------------------ */
+
+.search-drop {
+  border-radius: var(--r-lg);
+  overflow: hidden;
+  display: grid;
+  max-height: 46dvh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  animation: drop-in 200ms var(--ease);
+}
+
+@keyframes drop-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+}
+
+.sug {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  min-height: 52px;
+  padding: var(--sp-2) var(--sp-4);
+  border: none;
+  background: none;
+  text-align: left;
+  box-shadow: inset 0 -1px 0 var(--line);
+}
+
+.sug:last-child {
+  box-shadow: none;
+}
+
+.sug:active {
+  background: var(--fill-soft);
+}
+
+.sug-icon {
+  flex: none;
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--r-full);
+  background: var(--fill-soft);
+  color: var(--fg-dim);
+}
+
+.sug.is-accent .sug-icon {
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  color: var(--accent);
+}
+
+.sug-text {
+  display: grid;
+  gap: 1px;
+  min-width: 0;
+}
+
+.sug-label {
+  font-size: var(--text-base);
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sug-sub {
+  font-size: var(--text-sm);
+  color: var(--fg-mute);
+}
+
+.search-empty {
+  margin: 0;
+  padding: var(--sp-4);
+  font-size: var(--text-sm);
+  line-height: 1.5;
+  color: var(--fg-mute);
+}
+
+/* Catches the tap that dismisses the dropdown. Behind the bar and dropdown
+   (negative z within the .search-area stacking context), above the map. */
+.search-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+}
+
+/* "Choose on the map" is armed: say what the next tap will do. Kept narrower
+   than the bar so it clears the round controls stacked at the right edge. */
+.pick-hint {
+  justify-self: center;
+  max-width: calc(100% - 2 * (var(--tap) + var(--sp-3)));
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: var(--sp-1) var(--sp-1) var(--sp-1) var(--sp-3);
+  border-radius: var(--r-full);
+  font-size: var(--text-md);
+  font-weight: 500;
+  color: var(--fg-dim);
+  animation: drop-in 200ms var(--ease);
 }
 
 .text-btn {
@@ -135,13 +366,19 @@ button {
 
 .controls {
   position: absolute;
-  z-index: 4;
+  z-index: 3;
   right: var(--edge);
-  /* Below the topbar: its offset, its height, and a gap. */
-  top: calc(env(safe-area-inset-top) + 10px + var(--tap) + var(--sp-3));
+  /* Below the search pill: its offset, its height, and a gap. */
+  top: calc(env(safe-area-inset-top) + 10px + 48px + var(--sp-3));
   display: flex;
   flex-direction: column;
   gap: var(--sp-3);
+  transition: top var(--dur-slow) var(--ease);
+}
+
+/* The planner is two rows tall, so the rail steps down out of its way. */
+.app.has-trip .controls {
+  top: calc(env(safe-area-inset-top) + 10px + 96px + var(--sp-3));
 }
 
 /* Circular, per the system's rule that floating HUD toggles are round while
@@ -197,6 +434,48 @@ button {
   background: var(--fg);
 }
 
+/* -------------------------------------------------------------------- legend */
+
+/* What the road colours mean. Mirrors the controls column on the left edge,
+   below the search pill; hidden entirely in the plain layer. */
+.legend {
+  position: absolute;
+  z-index: 3;
+  left: var(--edge);
+  top: calc(env(safe-area-inset-top) + 10px + 48px + var(--sp-3));
+  width: 142px;
+  padding: var(--sp-2) 10px;
+  border-radius: var(--r-md);
+  display: grid;
+  gap: var(--sp-1);
+}
+
+.legend-title {
+  font-size: var(--text-xs);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: var(--track-caps);
+  white-space: nowrap;
+  color: var(--fg-mute);
+}
+
+.legend-bar {
+  height: 6px;
+  border-radius: var(--r-full);
+  background: var(--ramp);
+}
+
+.legend-ends {
+  display: flex;
+  justify-content: space-between;
+}
+
+.legend-ends i {
+  font-style: normal;
+  font-size: var(--text-xs);
+  color: var(--fg-mute);
+}
+
 /* ---------------------------------------------------------------------- dock */
 
 .dock {
@@ -204,7 +483,8 @@ button {
   z-index: 3;
   left: var(--edge);
   right: var(--edge);
-  bottom: calc(env(safe-area-inset-bottom) + var(--edge));
+  /* Floats above the feeds tab, which owns the bottom edge. */
+  bottom: calc(env(safe-area-inset-bottom) + var(--edge) + var(--feeds-h) + var(--sp-3));
   padding: var(--sp-4);
   border-radius: var(--r-xl);
   display: grid;
@@ -257,26 +537,27 @@ button {
   color: var(--alert-text);
 }
 
-.stats {
+.routes {
   display: flex;
   gap: var(--sp-2);
 }
 
-.stat {
+.route-card {
   flex: 1;
+  display: grid;
+  gap: 1px;
   background: var(--fill-soft);
-  border-radius: var(--r-md);
-  padding: 10px var(--sp-3);
+  border-radius: var(--r-lg);
+  padding: var(--sp-3) var(--sp-4);
 }
 
-/* Green appears here and on the route line, nowhere else. */
-.stat.is-primary {
-  background: var(--recommend-soft);
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--recommend) 35%, transparent);
+/* Route blue, matching the line on the map. */
+.route-card.is-primary {
+  background: var(--accent-soft);
+  box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--accent) 40%, transparent);
 }
 
-.stat-label {
-  display: block;
+.route-tag {
   font-size: var(--text-xs);
   font-weight: 600;
   text-transform: uppercase;
@@ -284,21 +565,88 @@ button {
   color: var(--fg-mute);
 }
 
-.stat.is-primary .stat-label {
-  color: var(--recommend-text);
+.route-card.is-primary .route-tag {
+  color: var(--accent-text);
 }
 
-.stat-val {
-  display: block;
-  font-size: var(--text-base);
+.route-time {
+  font-size: var(--text-2xl);
+  font-weight: 700;
+  letter-spacing: var(--track-tight);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.15;
+}
+
+.route-time small {
+  font-size: var(--text-md);
   font-weight: 600;
-  margin-top: var(--sp-1);
+  color: var(--fg-dim);
+}
+
+.route-len {
+  font-size: var(--text-sm);
+  color: var(--fg-mute);
 }
 
 .summary {
   margin: 0;
   font-size: var(--text-sm);
   color: var(--fg-dim);
+}
+
+/* ----------------------------------------------------------------- feeds tab */
+
+/*
+ * The camera feeds live behind a persistent tab pinned to the bottom edge -
+ * tap it and the feed sheet slides up, scrolled vertically. This is the
+ * mobile pattern the horizontal carousel replaced: thumbs scroll up, not
+ * sideways.
+ */
+.feeds-bar {
+  position: absolute;
+  z-index: 3;
+  left: var(--edge);
+  right: var(--edge);
+  bottom: calc(env(safe-area-inset-bottom) + var(--edge));
+  height: var(--feeds-h);
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: 0 var(--sp-3) 0 var(--sp-4);
+  border: 1px solid var(--glass-line);
+  border-radius: var(--r-full);
+  color: var(--fg);
+  transition: transform var(--dur-fast) var(--ease);
+}
+
+.feeds-bar:active {
+  transform: scale(0.98);
+}
+
+.feeds-title {
+  font-size: var(--text-base);
+  font-weight: 600;
+  letter-spacing: var(--track-tight);
+}
+
+.feeds-count {
+  min-width: 22px;
+  height: 22px;
+  padding: 0 7px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--r-full);
+  background: var(--fill);
+  color: var(--fg-dim);
+  font-size: var(--text-xs);
+  font-weight: 600;
+}
+
+.feeds-chevron {
+  margin-left: auto;
+  display: grid;
+  place-items: center;
+  color: var(--fg-mute);
 }
 
 /* --------------------------------------------------------------------- sheet */
@@ -442,66 +790,119 @@ button {
   }
 }
 
-/* ------------------------------------------------------------------ evidence */
+/* ---------------------------------------------------- routing-weight sheet */
 
+/* A sheet's one-line lead (the camera sheet's caption uses it too). */
 .lede {
   margin: 0 0 var(--sp-3);
   font-size: var(--text-md);
   color: var(--fg-dim);
 }
 
-.evidence {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  border-radius: var(--r-md);
-  overflow: hidden;
-  background: var(--fill-soft);
-}
-
-.evidence li {
+/* Where this block falls on the weight scale: the same ramp as the map. */
+.scale {
+  margin: 0 0 var(--sp-4);
   display: grid;
-  grid-template-columns: 82px 1fr;
-  gap: 2px 10px;
-  padding: 11px var(--sp-3);
-  min-height: var(--tap);
-  align-content: center;
-  box-shadow: inset 0 -1px 0 var(--line);
+  gap: var(--sp-2);
 }
 
-.evidence li:last-child {
-  box-shadow: none;
-}
-
-/* Amber marks anything the map data simply does not record. */
-.evidence li.is-inferred {
-  background: var(--flag-soft);
-}
-
-.ev-type {
+.scale-cap {
   font-size: var(--text-xs);
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: var(--track-caps);
   color: var(--fg-mute);
-  align-self: start;
-  padding-top: 1px;
 }
 
-.ev-detail {
+.scale-bar {
+  position: relative;
+  height: 8px;
+  border-radius: var(--r-full);
+  background: var(--ramp);
+}
+
+.scale-dot {
+  position: absolute;
+  top: 50%;
+  width: 16px;
+  height: 16px;
+  margin: -8px 0 0 -8px;
+  border-radius: var(--r-full);
+  background: #fff;
+  box-shadow:
+    0 0 0 1.5px rgb(0 0 0 / 0.18),
+    var(--shadow-1);
+}
+
+.scale-ends {
+  display: flex;
+  justify-content: space-between;
+}
+
+.scale-ends i {
+  font-style: normal;
+  font-size: var(--text-xs);
+  color: var(--fg-mute);
+}
+
+/* The four inputs, one compact row each: a ramp-coloured dot, the input's
+   name, the fact. A hollow dot plus a chip marks what OSM does not record. */
+.inputs {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  background: var(--fill-soft);
+  border-radius: var(--r-md);
+  overflow: hidden;
+}
+
+.inputs li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px var(--sp-3);
+  min-height: var(--tap);
+  box-shadow: inset 0 -1px 0 var(--line);
+}
+
+.inputs li:last-child {
+  box-shadow: none;
+}
+
+.in-dot {
+  flex: none;
+  width: 10px;
+  height: 10px;
+  border-radius: var(--r-full);
+}
+
+.in-dot.is-inferred {
+  background: transparent;
+  box-shadow: inset 0 0 0 2px var(--fg-mute);
+}
+
+.in-type {
+  flex: none;
+  width: 72px;
+  font-size: var(--text-xs);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: var(--track-caps);
+  color: var(--fg-mute);
+}
+
+.in-detail {
+  flex: 1;
   font-size: var(--text-md);
 }
 
-.ev-ref {
-  grid-column: 2;
+.in-chip {
+  flex: none;
   font-size: var(--text-xs);
   color: var(--fg-mute);
-  word-break: break-word;
-}
-
-.evidence li.is-inferred .ev-type,
-.evidence li.is-inferred .ev-ref {
-  color: var(--flag-text);
+  background: var(--fill);
+  padding: 2px 8px;
+  border-radius: var(--r-full);
 }
 
 .note {
@@ -540,31 +941,19 @@ button {
 
 /* ------------------------------------------------------------------- cameras */
 
-.cam-scroll {
-  display: flex;
-  gap: var(--sp-3);
-  overflow-x: auto;
-  overscroll-behavior-x: contain;
-  scroll-snap-type: x mandatory;
-  /* Without this the snap area starts at the scrollport edge, so the first
-     tile snaps flush to the screen and the 16px inset is silently cancelled. */
-  scroll-padding-left: 16px;
-  /* Bleeds to the sheet edges so the next tile peeks and reads as scrollable. */
-  margin: 0 -16px;
-  padding: 0 16px 6px;
-  -webkit-overflow-scrolling: touch;
+/* The vertical feed: one full-width card per camera, scrolled by the sheet
+   body itself. Replaced the horizontal carousel - on a phone the thumb scrolls
+   up through feeds, it does not paginate sideways. Tiles keep lazy-loading, so
+   only the frames actually scrolled into view are fetched. */
+.cam-feed {
+  display: grid;
+  gap: var(--sp-5);
+  padding-bottom: var(--sp-2);
 }
 
 .cam {
   margin: 0;
-  flex: none;
-  width: 78%;
-  max-width: 320px;
-  scroll-snap-align: start;
-}
-
-.cam-md {
-  width: 160px;
+  width: 100%;
 }
 
 .cam-media {
@@ -574,7 +963,7 @@ button {
   aspect-ratio: 3 / 2;
   padding: 0;
   border: none;
-  border-radius: var(--r-md);
+  border-radius: var(--r-lg);
   overflow: hidden;
   background: var(--surface-3);
   transition: opacity var(--dur-fast) ease-out;
@@ -865,8 +1254,11 @@ button {
   box-shadow: 0 1px 6px rgb(0 0 0 / 0.35);
 }
 
+/* Route-coloured, but hollow: the solid blue dot is the walker (.mk-user),
+   and start-of-route often sits exactly on top of it. */
 .mk-origin {
-  background: var(--recommend);
+  background: #fff;
+  border-color: var(--accent);
 }
 
 .mk-dest {
@@ -1007,19 +1399,24 @@ button {
   .sheet,
   .scrim,
   .dock > *,
+  .search-drop,
+  .pick-hint,
   .cam-media.is-loading {
     animation: none;
   }
   .dock,
   .ctrl,
+  .controls,
   .text-btn,
   .icon-btn,
+  .feeds-bar,
   .cam-media {
     transition: none;
   }
   .ctrl:active,
   .text-btn:active,
-  .icon-btn:active {
+  .icon-btn:active,
+  .feeds-bar:active {
     transform: none;
   }
 }

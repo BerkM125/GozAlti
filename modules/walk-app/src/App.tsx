@@ -1,14 +1,16 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import MapView from "./components/MapView.tsx";
-import { CameraIcon, PeopleIcon } from "./components/icons.tsx";
+import { CameraIcon, ChevronUpIcon, LayersIcon, PeopleIcon } from "./components/icons.tsx";
 import { CameraPanel, NearbyPanel, SegmentSheet, type Placed } from "./components/Panels.tsx";
 import { CameraSheet } from "./components/CameraSheet.tsx";
+import SearchBar, { type Field } from "./components/SearchBar.tsx";
 import {
   fetchCameras,
   fetchDetections,
   fetchFrameRecord,
   fetchRoute,
   fetchRouteCameras,
+  fetchSegment,
   health,
   RouteError,
 } from "./api.ts";
@@ -27,9 +29,12 @@ import {
   type LngLat,
   type Observation,
   type RouteResult,
+  type SegmentAssessment,
+  type TripStop,
 } from "./types.ts";
 
 type View = "2D" | "3D";
+type MapLayer = "weights" | "plain";
 type Panel = "cameras" | "nearby" | null;
 
 const minutes = (m: number) => Math.max(1, Math.round(m / WALK_M_PER_MIN));
@@ -61,15 +66,21 @@ function nearestIndex(polyline: [number, number][], p: LngLat): number {
 
 export default function App() {
   const [view, setView] = useState<View>("2D");
+  // The weight layer is the default view; "plain" is the toggle-off state.
+  const [layer, setLayer] = useState<MapLayer>("weights");
 
   // Origin and destination are one piece of state, not two. Two separate
   // setters read a stale closure when taps land in the same tick and can end up
-  // routing a point to itself.
-  const [pins, setPins] = useState<{ origin: LngLat | null; dest: LngLat | null }>({
+  // routing a point to itself. Each stop carries the name the UI shows for it -
+  // a searched place keeps its street name, a tap is honestly a "Dropped pin".
+  const [trip, setTrip] = useState<{ origin: TripStop | null; dest: TripStop | null }>({
     origin: null,
     dest: null,
   });
-  const { origin, dest } = pins;
+  const origin = trip.origin?.point ?? null;
+  const dest = trip.dest?.point ?? null;
+  /** Which trip field the next map tap fills, when "Choose on the map" is active. */
+  const [pickOnMap, setPickOnMap] = useState<Field | null>(null);
   const [userPos, setUserPos] = useState<LngLat | null>(null);
   /** Why we have no position, when we have none. Null once we do. */
   const [locationWhy, setLocationWhy] = useState<string | null>(null);
@@ -302,19 +313,53 @@ export default function App() {
 
   // -- interaction ----------------------------------------------------------
   // Knowing where you are changes what a tap means. With a position, you are
-  // the start and one tap is enough to route. Without one, it stays the old
-  // two-tap flow: first tap the start, second the destination, third start over.
+  // the start and one tap is enough to route. Without one, first tap sets the
+  // start, second the destination. With a full route on screen a tap re-anchors
+  // the start and keeps the destination - the searched destination is the part
+  // of the trip the user typed, so a stray tap must not throw it away. The
+  // search bar's own "Choose on the map" overrides all of this for one tap.
   const onMapTap = useCallback(
     (p: LngLat) => {
-      setPins((prev) => {
-        if (prev.origin && !prev.dest) return { ...prev, dest: p };
-        if (prev.origin) return { origin: p, dest: null }; // third tap resets
-        if (userPos) return { origin: userPos, dest: p };
-        return { origin: p, dest: null };
+      const pin: TripStop = { point: p, label: "Dropped pin" };
+      if (pickOnMap) {
+        setTrip((prev) => ({ ...prev, [pickOnMap]: pin }));
+        setPickOnMap(null);
+        return;
+      }
+      setTrip((prev) => {
+        if (prev.origin && !prev.dest) return { ...prev, dest: pin };
+        if (prev.origin && prev.dest) return { ...prev, origin: pin };
+        if (userPos) {
+          return { origin: { point: userPos, label: "Your location" }, dest: pin };
+        }
+        return { origin: pin, dest: null };
+      });
+    },
+    [userPos, pickOnMap],
+  );
+
+  /**
+   * A stop chosen through search. Picking a destination with no start yet
+   * defaults the start to the walker, matching what one map tap does - but
+   * only when a position actually exists; otherwise the planner shows an
+   * explicit "Set your start" instead of guessing one.
+   */
+  const setStop = useCallback(
+    (field: Field, stop: TripStop) => {
+      setTrip((prev) => {
+        const next = { ...prev, [field]: stop };
+        if (field === "dest" && !next.origin && userPos) {
+          next.origin = { point: userPos, label: "Your location" };
+        }
+        return next;
       });
     },
     [userPos],
   );
+
+  const swapStops = useCallback(() => {
+    setTrip((prev) => ({ origin: prev.dest, dest: prev.origin }));
+  }, []);
 
   // `cameras` is refetched whenever `focus` moves. A selection that dropped
   // out of the list would leave the viewer showing nothing.
@@ -334,7 +379,8 @@ export default function App() {
   }, [origin, dest]);
 
   const reset = () => {
-    setPins({ origin: null, dest: null });
+    setTrip({ origin: null, dest: null });
+    setPickOnMap(null);
     setResult(null);
     setSelectedSegment(null);
     setRouteError(null);
@@ -358,14 +404,38 @@ export default function App() {
     setLocationWhy(null);
   }, []);
 
-  const segment = result?.segments.find((s) => s.segment_id === selectedSegment) ?? null;
+  // -- tap-anywhere evidence ------------------------------------------------
+  // A tapped block on the safer route already has its assessment in `result`;
+  // any other block is fetched on demand from /api/segment/:id.
+  const [fetchedSegment, setFetchedSegment] = useState<SegmentAssessment | null>(null);
+  useEffect(() => {
+    if (!selectedSegment) {
+      setFetchedSegment(null);
+      return;
+    }
+    if (result?.segments.some((s) => s.segment_id === selectedSegment)) return;
+    let cancelled = false;
+    fetchSegment(selectedSegment).then((s) => {
+      if (cancelled || isUnavailable(s)) return;
+      setFetchedSegment(s);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedSegment, result]);
+
+  const segment =
+    result?.segments.find((s) => s.segment_id === selectedSegment) ??
+    (fetchedSegment?.segment_id === selectedSegment ? fetchedSegment : null);
   const camera = cameras.find((c) => c.camera_id === selectedCamera) ?? null;
   const detourPct = result ? Math.round((result.detour_ratio - 1) * 100) : 0;
 
   return (
-    <div className="app">
+    <div className={`app ${trip.origin || trip.dest ? "has-trip" : ""}`}>
       <MapView
         view={view}
+        layer={layer}
+        pickingStop={pickOnMap !== null}
         result={result}
         origin={origin}
         dest={dest}
@@ -380,21 +450,27 @@ export default function App() {
         onUserLocation={onGeolocate}
       />
 
-      <header className="topbar glass">
-        <span className="wordmark">GözAltı</span>
-        {ingestUp === false && (
-          <span className="chip chip-flag" title="Routing works; live camera evidence does not.">
-            cameras offline
-          </span>
-        )}
-        {(origin || result) && (
-          <button className="text-btn" onClick={reset}>
-            Reset
-          </button>
-        )}
-      </header>
+      <SearchBar
+        origin={trip.origin}
+        dest={trip.dest}
+        userPos={userPos}
+        pickOnMap={pickOnMap}
+        onSetStop={setStop}
+        onSwap={swapStops}
+        onClear={reset}
+        onPickOnMap={setPickOnMap}
+      />
 
       <nav className="controls" aria-label="Map controls">
+        <button
+          className={`ctrl glass ${layer === "weights" ? "is-on" : ""}`}
+          onClick={() => setLayer(layer === "weights" ? "plain" : "weights")}
+          aria-pressed={layer === "weights"}
+          title="Routing weight overlay"
+          aria-label="Routing weight overlay"
+        >
+          <LayersIcon />
+        </button>
         <button
           className={`ctrl glass ${view === "3D" ? "is-on" : ""}`}
           onClick={() => setView(view === "3D" ? "2D" : "3D")}
@@ -402,15 +478,6 @@ export default function App() {
           title="Tilt the map"
         >
           {view === "3D" ? "3D" : "2D"}
-        </button>
-        <button
-          className={`ctrl glass ${panel === "cameras" ? "is-on" : ""}`}
-          onClick={() => setPanel(panel === "cameras" ? null : "cameras")}
-          aria-label="Cameras near you"
-          title="Cameras near you"
-        >
-          <CameraIcon />
-          {cameras.length > 0 && <span className="ctrl-badge mono">{cameras.length}</span>}
         </button>
         <button
           className={`ctrl glass ${panel === "nearby" ? "is-on" : ""}`}
@@ -425,18 +492,37 @@ export default function App() {
         </button>
       </nav>
 
-      <div className={`dock glass ${result || routeError ? "" : "is-empty"}`}>
-        {!origin &&
-          (userPos ? (
-            <p className="hint">Tap where you're walking to. The route starts from you.</p>
-          ) : (
-            <p className="hint">Tap the map to set your start.</p>
-          ))}
-        {origin && !dest && <p className="hint">Now tap where you're walking to.</p>}
+      {/* What the road colours mean. Named for what it is - a routing weight,
+          never a "safety" or "danger" score. */}
+      {layer === "weights" && (
+        <div className="legend glass" aria-hidden="true">
+          <span className="legend-title">routing weight</span>
+          <span className="legend-bar" />
+          <span className="legend-ends">
+            <i>lower</i>
+            <i>higher</i>
+          </span>
+        </div>
+      )}
+
+      <div className={`dock glass ${result || routeError || routing ? "" : "is-empty"}`}>
+        {!origin && !dest && (
+          <p className="hint">
+            {userPos
+              ? "Search a destination, or tap the map - the walk starts from you."
+              : "Search a destination, or tap the map to set your start."}
+          </p>
+        )}
+        {origin && !dest && !pickOnMap && (
+          <p className="hint">Now set where you're walking to.</p>
+        )}
+        {!origin && dest && !pickOnMap && (
+          <p className="hint">Set your start to plan the walk.</p>
+        )}
         {routing && <p className="hint">Finding a route…</p>}
         {routeError && <p className="banner banner-refuse">{routeError}</p>}
 
-        {result && (
+        {result && !routing && (
           <>
             {result.over_cap && (
               <p className="banner banner-flag">
@@ -444,17 +530,24 @@ export default function App() {
                 {Math.round((result.cap - 1) * 100)}% detour you allow. Both are shown.
               </p>
             )}
-            <div className="stats">
-              <div className="stat is-primary">
-                <span className="stat-label">Recommended</span>
-                <span className="stat-val mono">
-                  {minutes(result.safer.length_m)} min · {(result.safer.length_m / 1000).toFixed(1)} km
+            <div className="routes">
+              <div className="route-card is-primary">
+                <span className="route-tag">Recommended</span>
+                <span className="route-time">
+                  {minutes(result.safer.length_m)}
+                  <small> min</small>
+                </span>
+                <span className="route-len mono">
+                  {(result.safer.length_m / 1000).toFixed(1)} km
                 </span>
               </div>
-              <div className="stat">
-                <span className="stat-label">Direct</span>
-                <span className="stat-val mono">
-                  {minutes(result.shortest.length_m)} min ·{" "}
+              <div className="route-card">
+                <span className="route-tag">Direct</span>
+                <span className="route-time">
+                  {minutes(result.shortest.length_m)}
+                  <small> min</small>
+                </span>
+                <span className="route-len mono">
                   {(result.shortest.length_m / 1000).toFixed(1)} km
                 </span>
               </div>
@@ -464,6 +557,26 @@ export default function App() {
           </>
         )}
       </div>
+
+      <button
+        className="feeds-bar glass"
+        onClick={() => setPanel(panel === "cameras" ? null : "cameras")}
+        aria-expanded={panel === "cameras"}
+        aria-label="Open the live camera feeds"
+      >
+        <CameraIcon size={18} />
+        <span className="feeds-title">Live feeds</span>
+        {ingestUp === false ? (
+          <span className="chip chip-flag" title="Routing works; live camera evidence does not.">
+            offline
+          </span>
+        ) : (
+          cameras.length > 0 && <span className="feeds-count mono">{cameras.length}</span>
+        )}
+        <span className="feeds-chevron">
+          <ChevronUpIcon />
+        </span>
+      </button>
 
       {segment && <SegmentSheet segment={segment} onClose={() => setSelectedSegment(null)} />}
 

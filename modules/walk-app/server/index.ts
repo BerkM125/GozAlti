@@ -18,8 +18,9 @@
 import { join } from "node:path";
 import { existsSync } from "node:fs";
 import { getGraph, type WalkGraph } from "./graph.ts";
-import { NodeIndex, planRoute, type Algorithm } from "./routing.ts";
+import { assess, NodeIndex, planRoute, type Algorithm } from "./routing.ts";
 import { camerasAlongRoute, toConvergenceCamera, type LightCamera } from "./cameras.ts";
+import { PlaceIndex } from "./search.ts";
 
 const ROOT = join(import.meta.dir, "..", "..", "..");
 const DIST = join(import.meta.dir, "..", "dist");
@@ -48,10 +49,32 @@ const graph: WalkGraph = getGraph({
   cachePath: join(import.meta.dir, "..", "data", "walk_graph.json"),
 });
 const index = new NodeIndex(graph);
+const places = new PlaceIndex(graph);
 const bootMs = Math.round(performance.now() - t0);
 console.log(
-  `walk graph ready: ${graph.nodes.size} junctions, ${graph.edges.size} blocks (${bootMs} ms)`,
+  `walk graph ready: ${graph.nodes.size} junctions, ${graph.edges.size} blocks, ` +
+    `${places.size} searchable places (${bootMs} ms)`,
 );
+
+// Every walkable block with its routing weight, for the map's weight layer.
+// Built once: the graph is immutable for the life of the process. 5 dp is
+// ~1.1 m, well under a block's width, and keeps the payload near 1 MB raw /
+// ~300 kB gzipped.
+const blocksJson = JSON.stringify({
+  type: "FeatureCollection",
+  features: [...graph.edges.values()].map((e) => ({
+    type: "Feature",
+    properties: { segment_id: e.segment_id, risk: Number(e.risk.toFixed(3)) },
+    geometry: {
+      type: "LineString",
+      coordinates: e.geometry.map(([lon, lat]) => [
+        Number(lon.toFixed(5)),
+        Number(lat.toFixed(5)),
+      ]),
+    },
+  })),
+});
+const blocksGz = Bun.gzipSync(Buffer.from(blocksJson));
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -237,6 +260,36 @@ async function handle(req: Request): Promise<Response> {
       ).map((c) => c.camera_id);
     }
     return json(result);
+  }
+
+  // -- place search (offline, answered from the walk graph) ------------------
+  // Streets and intersections only: exactly the names the graph can route to,
+  // resolved with no network call and no external geocoder.
+  if (path === "/api/geocode") {
+    const q = url.searchParams.get("q") ?? "";
+    return json({ query: q, results: places.search(q) });
+  }
+
+  // -- every walkable block, with its routing weight --------------------------
+  // Static per boot; the map colours its weight layer from this.
+  if (path === "/api/blocks") {
+    const gz = (req.headers.get("accept-encoding") ?? "").includes("gzip");
+    return new Response(gz ? blocksGz : blocksJson, {
+      headers: {
+        "content-type": "application/json",
+        "cache-control": "public, max-age=3600",
+        vary: "accept-encoding",
+        ...(gz ? { "content-encoding": "gzip" } : {}),
+      },
+    });
+  }
+
+  // -- one block's assessment, for tap-anywhere evidence ----------------------
+  const seg = path.match(/^\/api\/segment\/(.+)$/);
+  if (seg) {
+    const edge = graph.edges.get(decodeURIComponent(seg[1]));
+    if (!edge) return json({ error: "no such segment" }, 404);
+    return json(assess(graph, [edge])[0]);
   }
 
   // -- every camera watching a route (SPEC §6.7 shape) -----------------------

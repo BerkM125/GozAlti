@@ -10,6 +10,7 @@
 import { join } from "node:path";
 import { buildGraph } from "./graph.ts";
 import { NodeIndex, planRoute, dijkstra, astar } from "./routing.ts";
+import { PlaceIndex } from "./search.ts";
 
 const ROOT = join(import.meta.dir, "..", "..", "..");
 const BBOX: [number, number, number, number] = [-122.375, 47.585, -122.29, 47.65];
@@ -86,6 +87,36 @@ for (const w of [0, 3]) {
     `(${a.expanded} vs ${d.expanded})`,
   );
 }
+
+// Place search: the destination bar depends on these shapes of query working.
+const places = new PlaceIndex(g);
+console.log(`\nplace index: ${places.size} entries`);
+
+const pike = places.search("pike st");
+check(
+  "search: 'pike st' finds Pike Street",
+  pike.some((p) => p.label.toLowerCase().includes("pike")),
+  `(top: ${pike[0]?.label ?? "none"})`,
+);
+const cross = places.search("3rd and pine");
+check(
+  "search: '3rd and pine' finds the intersection",
+  cross.length > 0 &&
+    cross[0].kind === "intersection" &&
+    cross[0].label.includes("3rd") &&
+    cross[0].label.includes("Pine"),
+  `(top: ${cross[0]?.label ?? "none"})`,
+);
+const routable = cross[0] && planRoute(g, idx, from, [cross[0].lon, cross[0].lat], "astar");
+check(
+  "search: the intersection result is routable",
+  !!routable && !("error" in routable),
+);
+check("search: sub-2-char queries return nothing", places.search("p").length === 0);
+check(
+  "search: every result carries finite coordinates",
+  [...pike, ...cross].every((p) => Number.isFinite(p.lat) && Number.isFinite(p.lon)),
+);
 
 console.log(failures === 0 ? "\nall checks passed" : `\n${failures} check(s) failed`);
 process.exit(failures === 0 ? 0 : 1);

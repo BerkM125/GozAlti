@@ -3,8 +3,16 @@ import maplibregl from "maplibre-gl";
 import type { FeatureCollection } from "geojson";
 import { CENTER, DEFAULT_ZOOM, PITCH_2D, PITCH_3D } from "../config.ts";
 import { buildMapStyle } from "../mapStyle.ts";
-import { ROUTE, SKY } from "../palette.ts";
-import { familyOf, type Camera, type Detection, type LngLat, type RouteResult } from "../types.ts";
+import { ROUTE, SELECTED, SKY, WEIGHT_STOPS } from "../palette.ts";
+import { fetchBlocks } from "../api.ts";
+import {
+  familyOf,
+  isUnavailable,
+  type Camera,
+  type Detection,
+  type LngLat,
+  type RouteResult,
+} from "../types.ts";
 import { CAMERA_MARKER_GLYPH } from "./icons.tsx";
 
 const EMPTY: FeatureCollection = { type: "FeatureCollection", features: [] };
@@ -13,6 +21,11 @@ const toLngLat = (line: [number, number][]): LngLat[] => line.map(([lat, lon]) =
 
 type Props = {
   view: "2D" | "3D";
+  /** "weights" paints every block by its routing weight; "plain" hides it. */
+  layer: "weights" | "plain";
+  /** True while the search bar's "Choose on the map" waits for a tap. Block
+   *  taps yield to it, so the tap places the stop instead of opening a sheet. */
+  pickingStop: boolean;
   result: RouteResult | null;
   origin: LngLat | null;
   dest: LngLat | null;
@@ -38,6 +51,8 @@ function el(className: string, html = ""): HTMLElement {
 
 export default function MapView({
   view,
+  layer,
+  pickingStop,
   result,
   origin,
   dest,
@@ -57,8 +72,8 @@ export default function MapView({
 
   // Callbacks live in refs so the map is created exactly once and never has to
   // be torn down when a parent re-renders.
-  const cbs = useRef({ onMapTap, onSelectSegment, onSelectCamera, onUserLocation });
-  cbs.current = { onMapTap, onSelectSegment, onSelectCamera, onUserLocation };
+  const cbs = useRef({ onMapTap, onSelectSegment, onSelectCamera, onUserLocation, pickingStop });
+  cbs.current = { onMapTap, onSelectSegment, onSelectCamera, onUserLocation, pickingStop };
 
   // Keyed markers plus the HTML they were built from, so a re-render can tell
   // "same marker, maybe moved" from "this marker actually changed". Tearing
@@ -100,9 +115,49 @@ export default function MapView({
     m.on("load", () => {
       m.setSky(SKY);
 
-      for (const id of ["direct", "safer", "segments"]) {
+      for (const id of ["blocks", "direct", "safer", "segments"]) {
         m.addSource(id, { type: "geojson", data: EMPTY });
       }
+
+      // Every walkable block, coloured by routing weight. Under the road
+      // labels (beforeId), so street names stay readable over the ramp.
+      m.addLayer(
+        {
+          id: "blocks-heat",
+          type: "line",
+          source: "blocks",
+          layout: { "line-cap": "round", "line-join": "round" },
+          paint: {
+            "line-color": [
+              "interpolate",
+              ["linear"],
+              ["get", "risk"],
+              ...WEIGHT_STOPS.flat(),
+            ],
+            "line-width": ["interpolate", ["linear"], ["zoom"], 12, 1.5, 14, 2.75, 16, 5, 18, 9],
+            "line-opacity": 0.85,
+          },
+        },
+        "road-label",
+      );
+
+      // Tap target for any block. Narrower than the route's 30px so a tap
+      // beside a street still drops a routing pin instead of opening evidence.
+      m.addLayer({
+        id: "blocks-hit",
+        type: "line",
+        source: "blocks",
+        paint: { "line-color": "#000", "line-width": 22, "line-opacity": 0 },
+      });
+
+      // The weight data is static per server boot; one fetch fills the layer.
+      fetchBlocks().then((fc) => {
+        if (isUnavailable(fc)) {
+          console.error("[map] weight layer unavailable:", fc.why);
+          return;
+        }
+        (m.getSource("blocks") as maplibregl.GeoJSONSource)?.setData(fc);
+      });
 
       // The plain shortest walk: present, but visually quiet.
       m.addLayer({
@@ -142,14 +197,28 @@ export default function MapView({
         },
       });
 
+      // The tapped block, white-cased dark blue so it reads over both the
+      // weight ramp and the route. Drawn from the blocks source because that
+      // holds every edge, so tap-anywhere selection works off-route too.
       m.addLayer({
-        id: "segment-selected",
+        id: "block-selected-casing",
         type: "line",
-        source: "segments",
+        source: "blocks",
         layout: { "line-cap": "round", "line-join": "round" },
         paint: {
-          "line-color": ["get", "flag"],
-          "line-width": ["interpolate", ["linear"], ["zoom"], 12, 6, 17, 13],
+          "line-color": SELECTED.casing,
+          "line-width": ["interpolate", ["linear"], ["zoom"], 12, 9, 17, 16],
+        },
+        filter: ["==", ["get", "segment_id"], "__none__"],
+      });
+      m.addLayer({
+        id: "block-selected",
+        type: "line",
+        source: "blocks",
+        layout: { "line-cap": "round", "line-join": "round" },
+        paint: {
+          "line-color": SELECTED.line,
+          "line-width": ["interpolate", ["linear"], ["zoom"], 12, 5, 17, 11],
         },
         filter: ["==", ["get", "segment_id"], "__none__"],
       });
@@ -162,10 +231,23 @@ export default function MapView({
         paint: { "line-color": "#000", "line-width": 30, "line-opacity": 0 },
       });
 
+      // Click handlers fire in registration order, which is the precedence:
+      // a route segment first, then any block, then the bare-map tap.
       m.on("click", "segment-hit", (e) => {
         e.preventDefault();
         const id = e.features?.[0]?.properties?.segment_id as string | undefined;
         if (id) cbs.current.onSelectSegment(id);
+      });
+
+      m.on("click", "blocks-hit", (e) => {
+        if (e.defaultPrevented) return; // a route segment already took the tap
+        // "Choose on the map" is an explicit promise that the next tap places
+        // a stop; falling through lets the bare-map handler keep it.
+        if (cbs.current.pickingStop) return;
+        const id = e.features?.[0]?.properties?.segment_id as string | undefined;
+        if (!id) return;
+        e.preventDefault();
+        cbs.current.onSelectSegment(id);
       });
 
       m.on("click", (e) => {
@@ -225,10 +307,24 @@ export default function MapView({
     });
   }, [view]);
 
+  // -- weight layer on/off -------------------------------------------------
+  useEffect(() => {
+    whenReady((m) => {
+      const vis = layer === "weights" ? "visible" : "none";
+      m.setLayoutProperty("blocks-heat", "visibility", vis);
+      // Plain mode also restores tap-to-route everywhere: no hit layer, no
+      // accidental evidence sheets.
+      m.setLayoutProperty("blocks-hit", "visibility", vis);
+    });
+  }, [layer]);
+
   // -- routes --------------------------------------------------------------
   useEffect(() => {
     whenReady((m) => {
       paintRoutes(m, result);
+      // With a route up, the weights recede to context so the blue line pops.
+      // MapLibre's default 300ms paint transition animates the change.
+      m.setPaintProperty("blocks-heat", "line-opacity", result ? 0.3 : 0.85);
       if (result) {
         m.fitBounds(routeBounds(result), {
           ...FIT_PADDING,
@@ -255,9 +351,15 @@ export default function MapView({
 
   // -- selection -----------------------------------------------------------
   useEffect(() => {
-    whenReady((m) =>
-      m.setFilter("segment-selected", ["==", ["get", "segment_id"], selectedSegment ?? "__none__"]),
-    );
+    whenReady((m) => {
+      const filter: maplibregl.FilterSpecification = [
+        "==",
+        ["get", "segment_id"],
+        selectedSegment ?? "__none__",
+      ];
+      m.setFilter("block-selected-casing", filter);
+      m.setFilter("block-selected", filter);
+    });
   }, [selectedSegment]);
 
   // -- markers: origin, destination, cameras, detections -------------------
@@ -391,7 +493,7 @@ function paintRoutes(m: maplibregl.Map, result: RouteResult | null) {
           type: "FeatureCollection",
           features: result.segments.map((s) => ({
             type: "Feature",
-            properties: { segment_id: s.segment_id, flag: p.flag },
+            properties: { segment_id: s.segment_id },
             geometry: s.geometry,
           })),
         } as FeatureCollection)

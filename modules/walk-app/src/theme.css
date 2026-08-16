@@ -8,27 +8,41 @@
  * Colour values are Apple's system palette rather than approximations, so the
  * blue reads as the same blue an iOS user already knows:
  *
- *   #007AFF  systemBlue     interactive only - buttons, active toggles, links
- *   #34C759  systemGreen    the recommendation: the safer route, a healthy feed
+ *   #007AFF  systemBlue     the recommended route, and interactive chrome
+ *   --ramp   green->brick   routing weight only: map layer, legend, scale bars
+ *   #34C759  systemGreen    a live/healthy camera feed, nothing else
  *   #FF9500  systemOrange   flagged or degraded: unmapped data, a stale read
  *   #FF3B30  systemRed      RESERVED: a live alert, or a refusal
  *
- * Four meanings, four colours. Blue is chrome and never carries meaning on the
- * map; green is the only colour the recommended route wears. Camera markers stay
- * neutral on purpose, because an accent on every block would spend the attention
- * that a live alert depends on.
+ * Fixed meanings, one colour each. The ramp is deliberately muted so it reads
+ * as a data layer, never as scattered alerts. Camera markers stay neutral on
+ * purpose, because an accent on every block would spend the attention that a
+ * live alert depends on.
  *
  * Greys are Apple's too: #F2F2F7 (systemGray6) grounds the app, #8E8E93
  * (systemGray) is the muted text, and separators are the standard translucent
  * rgb(60 60 67 / .29).
  */
 
+/*
+ * Inter, self-hosted from public/fonts, so every device renders the same
+ * letterforms - the SF-only stack looked right on the demo iPhone and fell
+ * back to Segoe/Roboto everywhere else. Served same-origin, so nothing
+ * depends on the venue's network; the system stack stays as the fallback
+ * while the 344 kB variable file loads.
+ */
+@font-face {
+  font-family: "InterVariable";
+  src: url("/fonts/InterVariable.woff2") format("woff2");
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+
 :root {
   color-scheme: light;
 
-  /* System-first: real SF Pro on the demo iPhone, Segoe/Roboto elsewhere.
-     No webfont, so nothing depends on the venue's network. */
-  --sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+  --sans: "InterVariable", -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
   --mono: ui-monospace, "SF Mono", "JetBrains Mono", "IBM Plex Mono", Menlo, monospace;
 
   /* -- type -----------------------------------------------------------------
@@ -37,8 +51,9 @@
   --text-sm: 12px; /* sheet subtitles, notes, summary */
   --text-md: 13px; /* hints, banners, buttons, list body */
   --text-base: 15px; /* body, stat values, tile titles */
-  --text-lg: 17px; /* wordmark */
+  --text-lg: 17px; /* search input, planner stops */
   --text-xl: 20px; /* sheet titles */
+  --text-2xl: 26px; /* the route cards' walk time */
 
   --track-tight: -0.02em; /* titles and the wordmark */
   --track-caps: 0.06em; /* uppercase microcaps */
@@ -51,7 +66,8 @@
   --sp-5: 20px;
   --sp-6: 24px;
   --edge: 12px; /* the screen inset every floating panel shares */
-  --dock-clearance: 150px; /* keeps MapLibre's controls above the dock */
+  --feeds-h: 52px; /* the collapsed feeds tab at the bottom */
+  --dock-clearance: 215px; /* keeps MapLibre's controls above the dock and feeds tab */
 
   /* -- surfaces ------------------------------------------------------------ */
   --canvas: #f2f2f7; /* systemGray6, only seen behind the map */
@@ -91,10 +107,29 @@
   /* -- meaning --------------------------------------------------------------
      The meaning hexes are mirrored in src/palette.ts, because MapLibre paint
      cannot read CSS variables. Change a colour in both files or the map and
-     the chrome will disagree. */
-  --accent: #007aff; /* systemBlue */
+     the chrome will disagree.
 
-  --recommend: #34c759; /* systemGreen */
+     Blue is the recommended route and the chrome. The muted --ramp gradient
+     carries routing weight (map layer, legend, scale bars) and nothing else.
+     Green marks only a live/healthy camera feed. Orange is flagged/unmapped.
+     Solid red fills stay reserved for live alerts and refusals. */
+  --accent: #007aff; /* systemBlue: the route, and interactive chrome */
+  --accent-text: #0062cc; /* 5:1 on white */
+  --accent-soft: #e3efff;
+
+  /* Routing-weight ramp, mirrored in palette.ts WEIGHT_STOPS (risk 0.08-0.56,
+     the observed spread). Muted on purpose: data, never an alert. */
+  --ramp: linear-gradient(
+    90deg,
+    #4d9e58 0%,
+    #93b24a 15%,
+    #c9ac3f 31%,
+    #d68936 46%,
+    #ce5f2e 65%,
+    #b23a2c 92%
+  );
+
+  --recommend: #34c759; /* systemGreen: a live/healthy feed */
   --recommend-text: #248a3d; /* 4.6:1 on white - the swatch itself is too light for text */
   --recommend-soft: #e3f8e9;
   --on-recommend: #04340f; /* text on a solid green fill */
@@ -115,11 +150,14 @@
   --class-obstruction: #ff9500;
   --class-other: #8e8e93;
 
-  /* -- form ----------------------------------------------------------------- */
+  /* -- form -------------------------------------------------------------------
+     Rounder than the first pass on purpose: cards and sheets read softer and
+     more inviting at 14-26 px, and the pill stays for anything interactive. */
   --r-xs: 3px; /* detection swatch corners */
   --r-sm: 8px;
-  --r-md: 12px;
-  --r-xl: 22px;
+  --r-md: 14px; /* cards, grouped lists, banners */
+  --r-lg: 18px; /* route cards, suggestion dropdown */
+  --r-xl: 26px; /* sheets, the dock, the planner */
   --r-full: 999px;
 
   --tap: 44px; /* Apple's minimum, and this is used outdoors one-handed */

@@ -13,7 +13,9 @@ export type Route = {
   evidence_summary: string;
 };
 
-export type EvidenceItem = { type: string; ref: string; detail: string };
+/** `score` is the component's 0-1 contribution; optional because §6.5 Alerts
+ *  reuse this shape and synthesis does not send scores. */
+export type EvidenceItem = { type: string; ref: string; detail: string; score?: number };
 
 /** SPEC.md §6.4, plus the geometry and label the map needs to draw it. */
 export type SegmentAssessment = {
@@ -124,6 +126,23 @@ export type FrameRecord = {
   path?: string | null;
   source?: "sdot-snapshot" | "sdot-hls" | "disk-cache" | "phone" | string;
   stale?: boolean;
+};
+
+/**
+ * One result from `/api/geocode` - a street or intersection the walk graph can
+ * route to, resolved offline. No external geocoder is involved.
+ */
+export type Place = {
+  label: string;
+  kind: "street" | "intersection";
+  lat: number;
+  lon: number;
+};
+
+/** An endpoint of the planned walk: where, plus the name the UI shows for it. */
+export type TripStop = {
+  point: LngLat;
+  label: string;
 };
 
 /** Every upstream call can come back like this, and the UI must render it. */

@@ -21,6 +21,7 @@ experiments/surukamera/data/osm_ways.json   (17 MB, committed)
         │
         ▼
   server/index.ts  Bun.serve :8020 ──────────────┬──► GET/POST /api/route      (computed here)
+        │                                        ├──► GET /api/geocode         (server/search.ts, offline)
         │                                        └──► /api/cameras|detections|frame|hls
         │                                                    │  proxied, never SDOT directly
         │                                                    ▼
@@ -30,7 +31,7 @@ experiments/surukamera/data/osm_ways.json   (17 MB, committed)
         ▲
         │  dev: Vite :5173 proxies /api ──► :8020
         ▼
-  src/App.tsx ──► MapView (MapLibre) + Panels (sheets) + CameraTile (HLS/snapshot)
+  src/App.tsx ──► SearchBar (trip planner) + MapView (MapLibre) + Panels (sheets) + CameraTile (HLS/snapshot)
 ```
 
 One port in production is deliberate: `cloudflared tunnel --url http://localhost:8020` is the whole demo deployment.
@@ -43,23 +44,25 @@ One port in production is deliberate: `cloudflared tunnel --url http://localhost
 |---|---|---|
 | `server/graph.ts` | 488 | OSM parse, walkability filter, block splitting, risk scoring, disk cache |
 | `server/routing.ts` | 404 | Min-heap, spatial node index, Dijkstra/A\*, contract shaping |
-| `server/index.ts` | 267 | `Bun.serve` routes, media-ingest proxy, SSE, static `dist/` |
+| `server/index.ts` | ~400 | `Bun.serve` routes, media-ingest proxy, SSE, static `dist/` |
+| `server/search.ts` | 208 | Offline geocoder: street + intersection index over the graph, abbreviation-aware matching |
 | `server/cameras.ts` | 170 | §6.7 shaping, and which cameras watch a route |
-| `server/smoke.ts` | 91 | 8 assertions incl. A\* optimality vs Dijkstra |
+| `server/smoke.ts` | 122 | 13 assertions incl. A\* optimality vs Dijkstra, and place search |
 
 **Client**
 
 | File | Lines | Role |
 |---|---|---|
-| `src/App.tsx` | 344 | All state, data fetching, ahead/behind placement |
-| `src/components/MapView.tsx` | 376 | MapLibre lifecycle, route layers, HTML markers, 2D/3D |
+| `src/App.tsx` | ~560 | All state (incl. the trip and pick-on-map), data fetching, ahead/behind placement |
+| `src/components/MapView.tsx` | ~400 | MapLibre lifecycle, route layers, HTML markers, 2D/3D |
+| `src/components/SearchBar.tsx` | 340 | Destination bar, two-stop planner, suggestion dropdown |
 | `src/mapStyle.ts` | 285 | The basemap style: palette, road classes, building extrusion |
-| `src/components/Panels.tsx` | 256 | Sheet shell, segment evidence, camera panel, around-you |
-| `src/components/CameraTile.tsx` | 154 | HLS with snapshot fallback, age badge, detection overlay |
-| `src/types.ts` | 148 | SPEC §6 contract shapes, detection family mapping |
-| `src/theme.css` | 111 | Glass tokens and the colour budget, documented inline |
-| `src/styles.css` | 854 | Layout, glass panels, sheets, markers, MapLibre overrides |
-| `src/api.ts` / `src/config.ts` | 71 | Fetch wrappers; centre, pitch, thresholds |
+| `src/components/Panels.tsx` | 305 | Sheet shell, segment evidence, vertical camera feed, around-you |
+| `src/components/CameraTile.tsx` | ~230 | HLS with snapshot fallback, age badge, detection overlay |
+| `src/types.ts` | ~220 | SPEC §6 contract shapes, Place/TripStop, detection family mapping |
+| `src/theme.css` | ~160 | Inter @font-face, glass tokens and the colour budget, documented inline |
+| `src/styles.css` | ~1320 | Layout, search/planner, feeds tab, sheets, markers, MapLibre overrides |
+| `src/api.ts` / `src/config.ts` | ~140 | Fetch wrappers incl. `searchPlaces`; centre, pitch, thresholds |
 
 ## Graph construction
 
@@ -142,11 +145,11 @@ Text colours are the darker variants (`#248A3D`, `#995700`, `#C00D02`) because t
 
 These are product rules, not preferences. Breaking one is a bug.
 
-1. **No aggregate safety score reaches the UI.** `risk` is a routing weight (SPEC §6.4) and stays server-side. The sheet shows the four inputs and the tag each came from.
+1. **No aggregate safety score reaches the UI.** `risk` is surfaced only under its honest name - the "routing weight" map layer, legend and scale bars, with the four inputs on tap - never as a safety/danger number or verdict, and never as a printed aggregate.
 2. **Every camera image carries an age badge**, sourced from the §6.1 `FrameRecord`, never from the VLM. Tying it to an `Observation` means no badge until a model has read the camera, which is how you end up with a bare `SNAP` that asserts nothing. `LIVE` only while a stream is actually playing; otherwise `STREAM 6s` / `SNAP 45s` / `CACHED 12m` naming the frame's source, `NO FRESH FRAME` when `stale`, `AGE UNKNOWN` when no record arrived. Snapshot refresh is 60 s, matching media-ingest's per-camera floor.
 3. **Detections with no `est` are never placed on the map.** They go to a "seen, but not placed" group stating the camera's bearing is unresolved. No position is ever estimated.
 4. **View cones only for resolved bearings**, at opacity scaled by `bearing_conf`.
-5. **Four colours, four meanings.** Blue `#007AFF` is chrome only and never carries meaning on the map. Green `#34C759` is the recommendation and nothing else. Orange `#FF9500` is flagged or unmapped. Red `#FF3B30` is reserved for live alerts and refusals. Camera markers stay neutral for the same reason.
+5. **Colour carries fixed meanings.** Blue `#007AFF` is the recommended route and the chrome. The muted weight ramp (green `#4D9E58` to brick `#B23A2C`, `palette.ts WEIGHT_STOPS` / `--ramp`) is routing weight only, on the map and in scale bars. Green `#34C759` marks only a live/healthy feed. Orange `#FF9500` is flagged/unmapped fills. Red `#FF3B30` is reserved for live alerts and refusals. Camera markers stay neutral for the same reason.
 6. **Ahead/behind is measured along the route, not by compass.** With no route active the panel says the split is not knowable rather than guessing.
 7. **No upstream call bypasses media-ingest.** All SDOT rate-limit discipline stays in one place. This is why `/api/cameras` is built from media-ingest's `/api/nearby` rather than forwarding `/api/convergence`: the contract endpoint hands out the raw Wowza URL, and a browser running this bundle following it *is* this module calling SDOT. See SPEC.md for the §6.7 deviation this implies.
 9. **At most one camera streams live.** media-ingest's HLS proxy has no rate gate, so each playing tile is one continuous viewer on SDOT's stream host. Live HLS is confined to the full-screen viewer; list tiles are snapshots. Proxying is not throttling, and the SPEC says so out loud.
@@ -170,8 +173,8 @@ Each of these cost real debugging time.
 - **`video.canPlayType("application/vnd.apple.mpegurl")` returns `"maybe"` in Chromium**, which is truthy, so "ask the element first" routes every desktop browser down the native-HLS path where it fails with `DEMUXER_ERROR_COULD_NOT_PARSE`. Test `Hls.isSupported()` first and treat native as the Safari fallback.
 - **A `<video>` left mounted after the stream falls back is a black box** over a perfectly good snapshot. The element has to unmount when the feed degrades, not just stop.
 - **media-ingest's first frame for a camera takes 8-10 s** while it pulls upstream; later ones are cached and instant. Proxy timeouts below ~20 s turn that into a silent 503 and an empty tile. media-ingest allows itself 20 s, so anything shorter here gives up on a frame it was going to get.
-- **Setting only `overflow-y` makes `overflow-x` compute to `auto`**, which gave the sheet a second stray horizontal scrollbar under the camera carousel. Set both. Clipping happens at the *padding* box, so a `-16px` bleed survives `overflow-x: hidden` only if the padding lives on the scroll container itself.
-- **`scroll-snap-align: start` snaps to the scrollport edge, cancelling the carousel's inset**, so the first tile sat flush against the screen. `scroll-padding-left` is what makes the padding survive snapping.
+- **Setting only `overflow-y` makes `overflow-x` compute to `auto`**, which gave the sheet a second stray horizontal scrollbar under the old camera carousel. Set both. Clipping happens at the *padding* box, so a `-16px` bleed survives `overflow-x: hidden` only if the padding lives on the scroll container itself.
+- **The horizontal camera carousel is gone** (replaced by the vertical `.cam-feed` behind the feeds tab), so its snap gotcha is historical: `scroll-snap-align: start` snaps to the scrollport edge and needs `scroll-padding-left` to keep an inset. Remember it if a carousel ever comes back.
 - **A route is a line, so a radius query is the wrong shape for it.** Asking for cameras near the route's midpoint returns the same few no matter how long the walk is. Measure every camera against the polyline instead: `camerasAlongRoute` in `server/cameras.ts`, ordered by `along_m` so the list reads in passing order. Sampling the route with repeated radius queries is the tempting shortcut and it both misses cameras between samples and double-counts the ones near them.
 - **Uncapped camera lists are fine because `<img loading="lazy">` is doing the work.** A 28-camera route fetches 4 frames, not 28. Anything that forces layout or eagerly loads those images turns one route into 28 rate-gated upstream fetches.
 - **`/api/detections/{cid}` answers `{}`**, not an error, for a camera nothing has analysed. `ok === false` does not catch it, so it gets stored as a real observation and the tile says "no description returned" when the truth is "never read". Guard with `isObservation`.

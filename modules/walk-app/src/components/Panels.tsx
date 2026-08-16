@@ -1,6 +1,7 @@
 import { useState, type ReactNode } from "react";
 import CameraTile from "./CameraTile.tsx";
 import { CloseIcon } from "./icons.tsx";
+import { riskToT, weightColor } from "../palette.ts";
 import {
   EVIDENCE_LABEL,
   FAMILY_LABEL,
@@ -73,12 +74,13 @@ export function Sheet({
 }
 
 // ---------------------------------------------------------------------------
-// Segment evidence
+// Block assessment
 //
-// This sheet is the product's core promise: the route weighted this block, and
-// here is every input that did the weighting, each naming the OpenStreetMap tag
-// it came from. There is no aggregate score on screen, because SPEC.md §6.4
-// says `risk` is a routing weight and not something to show a user.
+// The product's core promise, made visual: where this block sits on the
+// routing-weight scale, and the four inputs that put it there. The scale is
+// labeled for what it is - a routing weight - and the dots reuse the map's
+// ramp, so the sheet and the streets speak one colour language. A hollow dot
+// plus a "not mapped" chip keeps the honesty about inputs OSM does not record.
 // ---------------------------------------------------------------------------
 
 export function SegmentSheet({
@@ -88,40 +90,38 @@ export function SegmentSheet({
   segment: SegmentAssessment;
   onClose: () => void;
 }) {
-  const inferred = segment.evidence.filter((e) => e.ref === "osm:untagged").length;
   return (
-    <Sheet
-      title={segment.name}
-      sub={
-        <>
-          <span className="mono">{segment.segment_id}</span> · {segment.length_m} m
-        </>
-      }
-      onClose={onClose}
-    >
-      <p className="lede">Why the route weighted this block:</p>
-      <ul className="evidence">
+    <Sheet title={segment.name} sub={`${segment.length_m} m`} onClose={onClose}>
+      <div className="scale">
+        <span className="scale-cap">Routing weight</span>
+        <div className="scale-bar">
+          <span className="scale-dot" style={{ left: `${riskToT(segment.risk) * 100}%` }} />
+        </div>
+        <span className="scale-ends">
+          <i>lower</i>
+          <i>higher</i>
+        </span>
+      </div>
+
+      <ul className="inputs">
         {segment.evidence.map((e, i) => {
           const untagged = e.ref === "osm:untagged";
           return (
-            <li key={i} className={untagged ? "is-inferred" : ""}>
-              <span className="ev-type">{EVIDENCE_LABEL[e.type] ?? e.type}</span>
-              <span className="ev-detail">{e.detail}</span>
-              <span className="ev-ref mono">{untagged ? "not mapped" : e.ref}</span>
+            <li key={i}>
+              {untagged ? (
+                <span className="in-dot is-inferred" />
+              ) : (
+                <span className="in-dot" style={{ background: weightColor(e.score ?? 0) }} />
+              )}
+              <span className="in-type">{EVIDENCE_LABEL[e.type] ?? e.type}</span>
+              <span className="in-detail">{e.detail}</span>
+              {untagged && <span className="in-chip">not mapped</span>}
             </li>
           );
         })}
       </ul>
-      {inferred > 0 && (
-        <p className="note note-flag">
-          {inferred} of {segment.evidence.length} inputs are not mapped in OpenStreetMap for this
-          block. A neutral default was used, so this block is neither credited nor penalised for
-          them.
-        </p>
-      )}
-      <p className="note">
-        Evidence comes from OpenStreetMap tags on this street. Nothing here is a safety verdict.
-      </p>
+
+      <p className="note">From OpenStreetMap tags on this street - not a safety verdict.</p>
     </Sheet>
   );
 }
@@ -182,7 +182,10 @@ export function CameraPanel({
             : "No public cameras watch this stretch."}
         </p>
       ) : (
-        <div className="cam-scroll">
+        // A vertical feed, one full-width card per camera, scrolled through the
+        // sheet body. Tiles lazy-load their frames, so an uncapped route list
+        // still only fetches the frames actually scrolled into view.
+        <div className="cam-feed">
           {cameras.map((c) => (
             <CameraTile
               key={c.camera_id}

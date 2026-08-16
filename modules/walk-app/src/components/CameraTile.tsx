@@ -41,7 +41,6 @@ type Props = {
   observation: Observation | null;
   /** SPEC §6.1 record of the frame on screen. What the age badge reads. */
   record: FrameRecord | null;
-  size?: "lg" | "md";
   /** Play the HLS stream. Off by default; only the opened camera sets it. */
   live?: boolean;
   /** Off when a surrounding sheet already names the camera. */
@@ -53,7 +52,6 @@ export default function CameraTile({
   camera,
   observation,
   record,
-  size = "lg",
   live: wantLive = false,
   caption = true,
   onOpen,
@@ -153,7 +151,7 @@ export default function CameraTile({
             { text: "AGE UNKNOWN", cls: "is-old" };
 
   return (
-    <figure className={`cam cam-${size}`}>
+    <figure className="cam">
       <button
         className={`cam-media ${feed === "loading" ? "is-loading" : ""}`}
         onClick={onOpen}

@@ -1,13 +1,17 @@
 import { API_BASE } from "./config.ts";
+import { isUnavailable } from "./types.ts";
 import type {
   Convergence,
   FrameRecord,
   LatLng,
   LngLat,
   Observation,
+  Place,
   RouteResult,
+  SegmentAssessment,
   Unavailable,
 } from "./types.ts";
+import type { FeatureCollection } from "geojson";
 
 async function get<T>(path: string, timeoutMs = 10_000): Promise<T | Unavailable> {
   try {
@@ -40,6 +44,17 @@ export async function fetchRoute(
   return (await res.json()) as RouteResult;
 }
 
+/**
+ * Streets and intersections matching `q`, answered by the walk-app server from
+ * its own graph. An empty list is a real answer ("nothing routable matches"),
+ * so an unreachable server degrades to that rather than throwing mid-keystroke.
+ */
+export async function searchPlaces(q: string): Promise<Place[]> {
+  const res = await get<{ results: Place[] }>(`/api/geocode?q=${encodeURIComponent(q)}`, 6000);
+  if (isUnavailable(res) || !Array.isArray(res.results)) return [];
+  return res.results;
+}
+
 export const fetchCameras = (lat: number, lon: number, radiusM: number) =>
   get<Convergence>(`/api/cameras?lat=${lat}&lon=${lon}&radius_m=${radiusM}`);
 
@@ -66,6 +81,13 @@ export async function fetchRouteCameras(
     return { ok: false, why: "couldn't reach the walk-app server" };
   }
 }
+
+/** Every walkable block with its routing weight; static per server boot. */
+export const fetchBlocks = () => get<FeatureCollection>("/api/blocks", 15_000);
+
+/** One block's §6.4 assessment, for the tap-anywhere evidence sheet. */
+export const fetchSegment = (id: string) =>
+  get<SegmentAssessment>(`/api/segment/${encodeURIComponent(id)}`, 6000);
 
 export const fetchDetections = (cameraId: string) =>
   get<Observation>(`/api/detections/${encodeURIComponent(cameraId)}`, 20_000);
