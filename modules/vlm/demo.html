@@ -1,0 +1,212 @@
+<!doctype html>
+<meta charset=utf-8>
+<title>vlm :8040 — live</title>
+<!-- Served by service.py at /. Zero dependencies, zero CDN: the venue wifi dies and
+     this still works. Calls the real endpoints and renders what comes back, including
+     the evidence chain behind every flag. -->
+<style>
+:root{--bg:#0d1016;--card:#151a22;--line:#232a35;--ink:#d8dee9;--dim:#7d8796;
+--go:#3ddc84;--warn:#f2a93b;--bad:#e8443a;--mono:ui-monospace,'SF Mono',Menlo,monospace}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--ink);font:14px/1.5 system-ui,sans-serif;padding:16px 20px}
+h1{font-size:15px;letter-spacing:.15em;text-transform:uppercase}
+h1 span{color:var(--go)}
+h2{font:11px var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--dim);
+margin:18px 0 8px;border-bottom:1px solid var(--line);padding-bottom:5px}
+.bar{display:flex;align-items:baseline;gap:14px;flex-wrap:wrap;margin-bottom:6px}
+.meta{font:11px var(--mono);color:var(--dim)}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:4px;padding:9px 11px}
+.card b{display:block;font:19px var(--mono);color:var(--go);font-variant-numeric:tabular-nums}
+.card span{font:9.5px var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--dim)}
+.row{display:grid;grid-template-columns:minmax(320px,1.3fr) 1fr;gap:14px;align-items:start}
+@media(max-width:900px){.row{grid-template-columns:1fr}}
+figure{position:relative;background:#000;border:1px solid var(--line);border-radius:4px;overflow:hidden}
+figure img{width:100%;display:block}
+figure canvas{position:absolute;inset:0;width:100%;height:100%}
+select,button{background:var(--card);color:var(--ink);border:1px solid var(--line);
+border-radius:4px;padding:7px 10px;font:12px var(--mono);cursor:pointer}
+button:hover{border-color:var(--go)}
+button.go{background:var(--go);color:#0d1016;font-weight:700;border-color:var(--go)}
+.controls{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px}
+.flags{display:flex;gap:6px;flex-wrap:wrap;margin:8px 0}
+.flag{font:10px var(--mono);padding:3px 8px;border-radius:3px;border:1px solid currentColor}
+.flag.f-neutral{color:var(--dim)}.flag.f-note{color:var(--warn)}.flag.f-hard{color:var(--bad)}
+.cap{background:var(--card);border-left:2px solid var(--go);padding:8px 11px;
+border-radius:0 3px 3px 0;margin:8px 0;line-height:1.6}
+table{width:100%;border-collapse:collapse;font:11.5px var(--mono)}
+th{text-align:left;font-size:9.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--dim);
+padding:4px 7px;border-bottom:1px solid var(--line)}
+td{padding:4px 7px;border-bottom:1px solid var(--line);font-variant-numeric:tabular-nums}
+tr:last-child td{border-bottom:0}
+pre{background:var(--card);border:1px solid var(--line);border-radius:4px;padding:10px;
+font:10.5px var(--mono);color:var(--dim);overflow:auto;max-height:340px;white-space:pre-wrap}
+.ep{font:10.5px var(--mono);color:var(--dim)}
+.ep b{color:var(--go);font-weight:400}
+.warnbox{background:var(--card);border-left:2px solid var(--warn);padding:8px 11px;
+border-radius:0 3px 3px 0;font:11px var(--mono);color:var(--dim);line-height:1.6;margin:8px 0}
+.spin{color:var(--warn)}
+</style>
+
+<div class=bar>
+  <h1>vlm <span>:8040</span></h1>
+  <span class=meta id=health>connecting…</span>
+</div>
+<div class=ep>
+  <b>POST /read</b> FrameRecord&nbsp;§6.1 → Observation&nbsp;§6.2 &nbsp;·&nbsp;
+  <b>POST /read_batch</b> &nbsp;·&nbsp; <b>GET /health</b> &nbsp;·&nbsp;
+  <b>GET /flags</b> &nbsp;·&nbsp; <b>GET /cache</b> &nbsp;·&nbsp; <b>DELETE /cache</b>
+</div>
+
+<h2>one frame — POST /read</h2>
+<div class=controls>
+  <select id=frame></select>
+  <button class=go id=run>read</button>
+  <button id=again>read again (cache)</button>
+  <button id=sweep>sweep 6 cameras — POST /read_batch</button>
+  <button id=clear>DELETE /cache</button>
+</div>
+
+<div class=row>
+  <figure><img id=img alt="camera frame"><canvas id=cv></canvas></figure>
+  <div>
+    <div class=grid id=stats></div>
+    <div class=flags id=flags></div>
+    <div class=cap id=cap>—</div>
+    <h2>why — the evidence behind it</h2>
+    <table id=why><tbody></tbody></table>
+  </div>
+</div>
+
+<h2>raw Observation (what synthesis consumes)</h2>
+<pre id=raw>—</pre>
+
+<h2>service</h2>
+<div class=grid id=svc></div>
+
+<script>
+const $ = s => document.querySelector(s);
+const J = async (p, o) => (await fetch(p, o)).json();
+let FRAMES = [], LAST = null;
+
+// flags that are plain description vs ones a walker would act on. No flag we emit
+// asserts danger — the hard ones are physical facts about the path.
+const HARD = new Set(['blocked_sidewalk','no_sidewalk','road_closure','camera_dead']);
+const NOTE = new Set(['narrowed_sidewalk','construction','emergency_response',
+                      'stalled_vehicle','vehicle_on_sidewalk','poor_lighting','crowd']);
+
+async function boot(){
+  const [h, fr] = await Promise.all([J('/health'), J('/frames')]);
+  FRAMES = fr.frames || [];
+  $('#frame').innerHTML = FRAMES.map(f =>
+    `<option value="${f.path}">${f.camera_id} — ${f.name}</option>`).join('');
+  paintHealth(h);
+  if (FRAMES.length) run();
+}
+
+function paintHealth(h){
+  $('#health').textContent =
+    `${h.detector} + ${h.vlm} · concurrency ${h.concurrency} · cache ${h.cache_entries}/${h.cache_ttl_s}s · up ${h.uptime_s}s`;
+  $('#svc').innerHTML = [
+    ['reads', h.reads], ['cache hits', h.cache_hits], ['cache misses', h.cache_misses],
+    ['schema retries', h.schema_retries], ['schema failures', h.schema_failures],
+    ['dead cameras', h.dead], ['batches', h.batches]
+  ].map(([l,v]) => `<div class=card><b>${v}</b><span>${l}</span></div>`).join('');
+}
+
+function rec(path){
+  const f = FRAMES.find(x => x.path === path) || {};
+  return {camera_id: f.camera_id || 'DEMO', captured_at: new Date().toISOString().replace(/\.\d+Z$/,'Z'),
+          lat: f.lat, lon: f.lon, kind: 'frame', path, source: 'sdot-snapshot', stale: false};
+}
+
+async function run(){
+  const path = $('#frame').value;
+  $('#cap').innerHTML = '<span class=spin>reading — detector then VLM…</span>';
+  const t0 = performance.now();
+  const obs = await J('/read', {method:'POST', headers:{'Content-Type':'application/json'},
+                                body: JSON.stringify(rec(path))});
+  render(obs, performance.now() - t0, path);
+  paintHealth(await J('/health'));
+}
+
+function render(obs, ms, path){
+  LAST = obs;
+  const e = obs._ext || {};
+  $('#img').src = '/frame?path=' + encodeURIComponent(path);
+  $('#img').onload = () => draw(obs);
+  $('#stats').innerHTML = [
+    ['people', obs.people_count],
+    ['vehicles', e.vehicle_count ?? '—'],
+    ['round trip', (ms/1000).toFixed(2)+'s'],
+    ['source', e.cached ? 'CACHE' : 'GPU'],
+    ['detector', (e.detector_ms ?? '—')+'ms'],
+  ].map(([l,v]) => `<div class=card><b>${v}</b><span>${l}</span></div>`).join('');
+  $('#flags').innerHTML = (obs.flags||[]).length
+    ? obs.flags.map(f => `<span class="flag ${HARD.has(f)?'f-hard':NOTE.has(f)?'f-note':'f-neutral'}">${f}</span>`).join('')
+    : '<span class="flag f-neutral">no flags</span>';
+  $('#cap').textContent = obs.caption || '—';
+
+  // the "why": every claim traced to the thing that produced it
+  const rows = [
+    ['people_count', obs.people_count, `detector, ${obs.detections.length} boxes each with confidence`],
+    ['vehicles', JSON.stringify(e.vehicles||{}), 'detector, COCO classes, same 66 ms pass'],
+    ['walkway_status', e.walkway_status ?? '—', 'VLM — UNVALIDATED, see RESULTS.md §4b'],
+    ['scene', e.scene ?? '—', 'VLM'],
+    ['flags', (obs.flags||[]).join(', ') || 'none', 'derived from walkway_status + events'],
+    ['caption', 'see above', 'VLM, never a verdict'],
+    ['vlm_confidence', e.vlm_confidence ?? '—', "the model's own, not calibrated"],
+    ['model', obs.model, 'what produced this'],
+    ['frame_ts / read_at', `${obs.frame_ts} / ${obs.read_at}`, 'when the pixels are from vs when we answered'],
+  ];
+  $('#why tbody').innerHTML =
+    '<tr><th>field</th><th>value</th><th>where it came from</th></tr>' +
+    rows.map(([k,v,src]) => `<tr><td>${k}</td><td>${String(v).slice(0,60)}</td><td class=ep>${src}</td></tr>`).join('');
+  $('#raw').textContent = JSON.stringify(obs, null, 1);
+}
+
+function draw(obs){
+  const img = $('#img'), cv = $('#cv');
+  cv.width = img.naturalWidth; cv.height = img.naturalHeight;
+  const g = cv.getContext('2d');
+  g.clearRect(0,0,cv.width,cv.height);
+  const s = Math.max(2, Math.round(cv.width/500));
+  for (const [i,d] of (obs.detections||[]).entries()){
+    const x = d.cx*cv.width, y = d.cy*cv.height, r = 5*s;
+    g.strokeStyle='#3ddc84'; g.lineWidth=s;
+    g.strokeRect(x-r*1.2, y-r*2.2, r*2.4, r*4.4);      // approx body box from the centroid
+    g.fillStyle='#e8443a'; g.beginPath(); g.arc(x,y,r*0.8,0,7); g.fill();
+    g.strokeStyle='#fff'; g.lineWidth=Math.max(1,s/2); g.stroke();
+    g.fillStyle='#3ddc84'; g.font=`${9*s}px ui-monospace,monospace`;
+    g.fillText(`${i+1} ${d.conf.toFixed(2)}`, x-r*1.2, y-r*2.2-3*s);
+  }
+}
+
+$('#run').onclick = run;
+$('#again').onclick = run;                     // identical request -> cache hit
+$('#clear').onclick = async () => { await fetch('/cache',{method:'DELETE'}); paintHealth(await J('/health')); };
+$('#frame').onchange = run;
+$('#sweep').onclick = async () => {
+  const six = FRAMES.slice(0,6).map(f => rec(f.path));
+  $('#cap').innerHTML = `<span class=spin>sweeping ${six.length} cameras…</span>`;
+  const t0 = performance.now();
+  const out = await J('/read_batch', {method:'POST', headers:{'Content-Type':'application/json'},
+                                      body: JSON.stringify({frames: six})});
+  const ms = performance.now() - t0;
+  $('#stats').innerHTML = [
+    ['cameras', out.count], ['ok', out.ok], ['failed', out.failed],
+    ['wall', out.wall_s+'s'], ['per frame', out.per_frame_s+'s'],
+    ['concurrency', out.concurrency],
+  ].map(([l,v]) => `<div class=card><b>${v}</b><span>${l}</span></div>`).join('');
+  $('#flags').innerHTML = '';
+  $('#cap').textContent = `sweep of ${out.count} cameras in ${out.wall_s}s wall (${(ms/1000).toFixed(2)}s round trip)`;
+  $('#why tbody').innerHTML = '<tr><th>camera</th><th>people</th><th>flags</th><th>caption</th></tr>' +
+    out.observations.map(o => o.error
+      ? `<tr><td>${o.camera_id}</td><td colspan=3 class=ep style="color:var(--bad)">${o.error}</td></tr>`
+      : `<tr><td>${o.camera_id}</td><td>${o.people_count}</td><td>${(o.flags||[]).join(', ')||'—'}</td>
+         <td class=ep>${(o.caption||'').slice(0,70)}</td></tr>`).join('');
+  $('#raw').textContent = JSON.stringify(out, null, 1);
+  paintHealth(await J('/health'));
+};
+boot();
+</script>

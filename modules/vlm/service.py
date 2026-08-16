@@ -5,6 +5,10 @@
   POST /read_batch  {"frames":[FrameRecord,...]} -> {"observations":[Observation,...]}
   GET  /health   liveness + what is loaded
   GET  /flags    the closed flag enum this module emits
+  GET  /cache    cache stats;  DELETE /cache clears it
+  GET  /         a zero-dependency demo page that exercises all of the above
+  GET  /frames   sample frames available to the demo
+  GET  /frame?path=...  serve a frame (restricted to under GOZALTI_ROOT)
 
 Runs INSIDE the vLLM container so it has torch/torchvision/cv2, with --network host so
 it can reach ollama on :11434:
@@ -30,7 +34,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import urlparse
+from urllib.parse import urlparse, parse_qs
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE / "lab"))
@@ -375,6 +379,36 @@ class H(BaseHTTPRequestHandler):
                 "cache_ttl_s": CACHE_TTL, "cache_entries": len(_cache),
                 "uptime_s": round(time.time() - _stats["started"]),
                 **{k: v for k, v in _stats.items() if k != "started"}})
+        if p in ("/", "/demo", "/index.html"):
+            html = (HERE / "demo.html").read_bytes()
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Content-Length", str(len(html)))
+            self.end_headers()
+            self.wfile.write(html)
+            return
+        if p == "/frames":
+            # what the demo can read: the committed sample set
+            out = []
+            for f in sorted((HERE / "lab" / "samples").glob("*.jpg")):
+                parts = f.stem.split("__")
+                out.append({"name": f.name, "path": str(f),
+                            "camera_id": parts[1] if len(parts) >= 3 else f.stem})
+            return self._json(200, {"frames": out})
+        if p == "/frame":
+            q = parse_qs(urlparse(self.path).query).get("path", [""])[0]
+            target = Path(q).resolve()
+            # never serve outside the repo, however the caller spells the path
+            if REPO.resolve() not in target.parents or not target.is_file():
+                return self._json(404, {"error": "not found"})
+            data = target.read_bytes()
+            self.send_response(200)
+            self.send_header("Content-Type", "image/jpeg")
+            self.send_header("Content-Length", str(len(data)))
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            self.wfile.write(data)
+            return
         if p == "/flags":
             return self._json(200, {"flags": FLAGS})
         if p == "/cache":
