@@ -116,7 +116,12 @@ function paintHealth(h){
 
 function rec(path){
   const f = FRAMES.find(x => x.path === path) || {};
-  return {camera_id: f.camera_id || 'DEMO', captured_at: new Date().toISOString().replace(/\.\d+Z$/,'Z'),
+  // stable per frame: a fresh now() here would change nothing about the pixels but
+  // would look like a new frame to any caller that keys on it
+  const ts = (f.name||'').match(/(\d{8}T\d{6}Z)/);
+  const captured = ts ? ts[1].replace(/^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})Z$/,'$1-$2-$3T$4:$5:$6Z')
+                      : '2026-08-16T00:00:00Z';
+  return {camera_id: f.camera_id || 'DEMO', captured_at: captured,
           lat: f.lat, lon: f.lon, kind: 'frame', path, source: 'sdot-snapshot', stale: false};
 }
 

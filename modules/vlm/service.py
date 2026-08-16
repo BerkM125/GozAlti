@@ -112,12 +112,22 @@ def resolve(path):
 # ---------- cache ------------------------------------------------------------------
 
 def cache_key(rec, path):
-    """Identity of the *frame*, not the camera. A new frame is a new key."""
+    """Identity of the *frame*: the bytes on disk, not the metadata describing them.
+
+    Deliberately excludes captured_at. Two FrameRecords pointing at the same file with
+    the same mtime describe the same pixels no matter what timestamp the caller
+    attached, and reading those pixels twice cannot produce a different answer. Keying
+    on captured_at made every re-request a miss whenever a caller stamped it with now(),
+    which is exactly what the demo page did — 2.5 s of GPU for a frame we had already
+    read. camera_id stays in the key so two cameras that somehow share a path never
+    alias.
+    """
     try:
-        mtime = int(path.stat().st_mtime)
+        st = path.stat()
+        ident = (int(st.st_mtime), st.st_size)
     except OSError:
-        mtime = 0
-    return (rec.get("camera_id"), str(path), mtime, rec.get("captured_at"))
+        ident = (0, 0)
+    return (rec.get("camera_id"), str(path), *ident)
 
 
 def cache_get(key):
