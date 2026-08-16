@@ -40,6 +40,13 @@ struct ContentView: View {
             }
         }
         .preferredColorScheme(.dark)
+        .onChange(of: caller.needsManualText) { _, needs in
+            // The spoken message said an address is coming. Twilio trial cannot send
+            // free-text SMS, so keep the promise with the compose sheet instead.
+            guard needs else { return }
+            msg.compose(contact: dlg.contact, fix: loc.current, address: loc.address)
+            caller.needsManualText = false
+        }
         .sheet(isPresented: $msg.showing) {
             MessageSheet(recipient: caller.number, body: msg.body) { result in
                 msg.finish(result)
@@ -49,6 +56,12 @@ struct ContentView: View {
             dlg.contact = savedContact
             caller.number = savedNumber
             caller.contact = savedContact
+            // @AppStorage only applies its default when the key is ABSENT. Earlier builds
+            // wrote an empty string here, so the new default was ignored and the app
+            // silently fell back to the dialer instead of calling the server. Heal it.
+            if caller.callServerURL.trimmingCharacters(in: .whitespaces).isEmpty {
+                caller.callServerURL = Caller.defaultServer
+            }
             loc.start()
             await speech.requestPermissions()
         }
@@ -154,8 +167,12 @@ struct ContentView: View {
     /// notification does not.
     private var escalationActions: some View {
         HStack(spacing: 8) {
-            btn("text \(dlg.contact)") { msg.compose(contact: dlg.contact, fix: loc.current) }
-            btn("call \(dlg.contact)") { status = caller.place(fix: loc.current) }
+            btn("text \(dlg.contact)") {
+                msg.compose(contact: dlg.contact, fix: loc.current, address: loc.address)
+            }
+            btn("call \(dlg.contact)") {
+                status = caller.place(fix: loc.current, address: loc.address)
+            }
         }
     }
 
@@ -191,9 +208,12 @@ struct ContentView: View {
             Text("voice: \(speech.voiceName)")
             if let f = loc.current {
                 Text(String(format: "fix: %.5f, %.5f  ±%.0fm", f.lat, f.lon, f.accuracy))
+                Text("addr: \(loc.address ?? "resolving…")")
             } else {
                 Text("fix: none — the message will say so")
             }
+            Text("alert service: \(caller.hasServer ? caller.callServerURL : "NOT SET — dialer only")")
+                .foregroundStyle(caller.hasServer ? go : .orange)
             Text("The decision is made on this phone by a deterministic state machine, never by a language model. Two explicit answers are required; silence never escalates; cancel always wins. We contact the person named above — never emergency services. iOS requires you to press Send; no app may text or dial on your behalf unattended.")
                 .padding(.top, 4)
         }
@@ -221,11 +241,11 @@ struct ContentView: View {
         let line = dlg.say
         speech.say(line) {
             if dlg.escalated {
-                // Server first: it is the only path that reaches the contact without a
-                // tap. The compose sheet is the belt to its braces, never the reverse.
-                if caller.hasServer { status = caller.place(fix: loc.current) }
-                msg.compose(contact: dlg.contact, fix: loc.current)
-                if !msg.outcome.isEmpty { status = msg.outcome }
+                // Twilio places the call AND sends the text, both unattended. The compose
+                // sheet is no longer opened automatically — it would demand a tap for a
+                // message that has already gone out, and a second copy is worse than none.
+                // It stays available as a button if the server is unreachable.
+                status = caller.place(fix: loc.current, address: loc.address)
             } else if dlg.state.awaitingAnswer {
                 startListening()
             }

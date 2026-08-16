@@ -39,6 +39,11 @@ final class Caller: ObservableObject {
     @Published var number = ""
     @Published var lastError: String?
     @Published var lastOutcome = ""
+    /// Set when the server placed the call but could not send the text. Twilio trial
+    /// accounts are limited to predefined SMS templates (error 572006), so free-text
+    /// SMS fails there even though the voice call succeeds. The phone then offers the
+    /// compose sheet — one tap, rather than a promise of an address that never arrives.
+    @Published var needsManualText = false
 
     /// Backend that rings the contact and speaks the situation — modules/calling.
     /// Defaults to the box this build was made on; editable in the UI when that changes.
@@ -49,13 +54,13 @@ final class Caller: ObservableObject {
 
     /// Ring the contact. The server does it unattended if one is configured; otherwise
     /// the dialer, which costs one tap.
-    func place(fix: Fix?) -> String {
+    func place(fix: Fix?, address: String?) -> String {
         let digits = number.filter { $0.isNumber || $0 == "+" }
         // The server knows the destination from CALLING_CONTACT_NUMBER, so an empty
         // field here is fine — nobody should have to type a phone number while in
         // trouble. Only the dialer path genuinely needs one.
         if hasServer {
-            Task { await placeViaServer(digits, fix: fix) }
+            Task { await placeViaServer(digits, fix: fix, address: address) }
             return "Asking the server to call \(contact)…"
         }
         guard !digits.isEmpty else {
@@ -73,7 +78,7 @@ final class Caller: ObservableObject {
     }
 
     /// Zero-tap: the backend rings the contact and reads the situation aloud.
-    private func placeViaServer(_ digits: String, fix: Fix?) async {
+    private func placeViaServer(_ digits: String, fix: Fix?, address: String?) async {
         guard let url = URL(string: callServerURL) else {
             lastError = "Bad call-server URL"; return
         }
@@ -81,9 +86,12 @@ final class Caller: ObservableObject {
         req.httpMethod = "POST"
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         req.timeoutInterval = 15
+        // Two bodies: what the call says, and what the text carries. The voice promises
+        // the address; "sms" is the promise being kept.
         var payload: [String: Any] = [
             "contact": contact,
-            "message": Situation.report(contact: contact, fix: fix, spoken: true),
+            "message": Situation.spoken(contact: contact, fix: fix, address: address),
+            "sms": Situation.texted(contact: contact, fix: fix, address: address),
         ]
         // Omit "to" entirely when unset so the server falls back to its configured
         // contact rather than receiving an empty string and dialing nothing.
@@ -95,11 +103,15 @@ final class Caller: ObservableObject {
             if (200..<300).contains(code) {
                 // Report which channels actually landed. "Reached" and "attempted" are
                 // different facts and the user was just told someone is being called.
-                let sent = (try? JSONSerialization.jsonObject(with: data))
-                    .flatMap { ($0 as? [String: Any])?["channels"] as? [String: Any] }
-                    .map { ch in ch.compactMap { k, v in
-                        ((v as? [String: Any])?["status"] as? String) == "sent" ? k : nil
-                    }.sorted() } ?? []
+                let channels = (try? JSONSerialization.jsonObject(with: data))
+                    .flatMap { ($0 as? [String: Any])?["channels"] as? [String: Any] } ?? [:]
+                func status(_ k: String) -> String {
+                    ((channels[k] as? [String: Any])?["status"] as? String) ?? "absent"
+                }
+                let sent = channels.keys.filter { status($0) == "sent" }.sorted()
+                // The call promised an address by text. If the text did not go, the
+                // promise is outstanding and the user has to know before they walk on.
+                needsManualText = status("twilio") == "sent" && status("twilio_sms") != "sent"
                 lastOutcome = sent.isEmpty
                     ? "Server accepted, but no channel reported success"
                     : "Reached \(contact) via " + sent.joined(separator: ", ")

@@ -26,8 +26,8 @@ final class Messenger: ObservableObject {
     static var available: Bool { MFMessageComposeViewController.canSendText() }
 
     /// Stage the message. Presentation happens in the view; sending happens by the user.
-    func compose(contact: String, fix: Fix?) {
-        body = Situation.report(contact: contact, fix: fix, spoken: false)
+    func compose(contact: String, fix: Fix?, address: String?) {
+        body = Situation.texted(contact: contact, fix: fix, address: address)
         guard Self.available else {
             outcome = "This device cannot send texts (no SIM, or the simulator)."
             return

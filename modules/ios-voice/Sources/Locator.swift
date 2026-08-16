@@ -12,10 +12,30 @@ import Foundation
 @MainActor
 final class Locator: NSObject, ObservableObject {
     @Published private(set) var fix: Fix?
+    @Published private(set) var address: String?
     @Published private(set) var problem: String?
 
     private let manager = CLLocationManager()
+    private let geocoder = CLGeocoder()
     private var fixedAt: Date?
+    private var lastGeocodedAt: Date?
+
+    /// A street address is what a person can act on; latitude and longitude are what a
+    /// person reads back to you incorrectly. Apple's geocoder is rate limited and will
+    /// start failing if hit per-update, so this runs at most once every 20 seconds.
+    private func geocode(_ l: CLLocation) {
+        if let last = lastGeocodedAt, Date().timeIntervalSince(last) < 20 { return }
+        lastGeocodedAt = Date()
+        geocoder.reverseGeocodeLocation(l) { [weak self] marks, _ in
+            guard let m = marks?.first else { return }
+            // Only the parts we actually got. A missing street is left out rather than
+            // filled in with the city, which would read as more precision than we have.
+            let parts = [[m.subThoroughfare, m.thoroughfare].compactMap { $0 }.joined(separator: " "),
+                         m.locality, m.administrativeArea]
+                .compactMap { $0 }.filter { !$0.isEmpty }
+            Task { @MainActor in self?.address = parts.joined(separator: ", ") }
+        }
+    }
 
     override init() {
         super.init()
@@ -51,6 +71,7 @@ extension Locator: CLLocationManagerDelegate {
                            age: Date().timeIntervalSince(at))
             self.fixedAt = at
             self.problem = nil
+            self.geocode(l)
         }
     }
 

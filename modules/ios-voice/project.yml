@@ -24,6 +24,11 @@ targets:
         # Scoped to local addresses only — NOT a blanket ATS disable. The alert service
         # runs on the Acer box over plain HTTP on the venue LAN.
         NSAppTransportSecurity:
+          # NSAllowsLocalNetworking covers .local and link-local names, but its treatment
+          # of a bare private-range IP over http is exactly the ambiguity that costs an
+          # hour on demo day. This build is a POC that talks to one box on the venue LAN,
+          # so it allows plain http outright rather than gambling on the narrower rule.
+          NSAllowsArbitraryLoads: true
           NSAllowsLocalNetworking: true
     settings:
       base:

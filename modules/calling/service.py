@@ -257,8 +257,31 @@ def send_callmebot(msg, **_):
     return good, why, body
 
 
+def send_twilio_sms(msg, to="", sms=None, **_):
+    """Text the contact from the same Twilio number that called them.
+
+    Separate from the voice channel on purpose. A spoken message cannot carry a link,
+    and a call that is missed leaves nothing behind; a text is the durable half of the
+    same alert. The caller may supply a different body for the text than for the call —
+    that is what `sms` is for — because a map URL read aloud is noise, and an address
+    the voice promised needs to actually arrive somewhere.
+    """
+    creds = twilio_auth()
+    frm = os.environ.get("TWILIO_FROM")
+    if not (creds and frm and to):
+        return None
+    sid, user, pw = creds
+    body = urllib.parse.urlencode({"To": to, "From": frm, "Body": (sms or msg)[:1500]}).encode()
+    auth = base64.b64encode(f"{user}:{pw}".encode()).decode()
+    return post(f"https://api.twilio.com/2010-04-01/Accounts/{sid}/Messages.json", body, {
+        "Authorization": f"Basic {auth}",
+        "Content-Type": "application/x-www-form-urlencoded",
+    })
+
+
 CHANNELS = {
     "twilio": send_twilio,        # rings a real cellular phone
+    "twilio_sms": send_twilio_sms,  # the durable half of the same alert
     "callmebot": send_callmebot,  # rings Telegram, free, no account
     "telegram": send_telegram,
     "ntfy": send_ntfy,
@@ -271,16 +294,17 @@ def armed():
     return {
         "callmebot": bool(os.environ.get("CALLMEBOT_USER")),
         "twilio": bool(twilio_auth() and os.environ.get("TWILIO_FROM")),
+        "twilio_sms": bool(twilio_auth() and os.environ.get("TWILIO_FROM")),
         "telegram": bool(os.environ.get("TELEGRAM_BOT_TOKEN") and os.environ.get("TELEGRAM_CHAT_ID")),
         "ntfy": bool(os.environ.get("NTFY_TOPIC")),
         "discord": bool(os.environ.get("DISCORD_WEBHOOK_URL")),
     }
 
 
-def fan_out(message, contact, to):
+def fan_out(message, contact, to, sms=None):
     results, reached = {}, False
     for name, fn in CHANNELS.items():
-        out = fn(message, contact=contact, to=to)
+        out = fn(message, contact=contact, to=to, sms=sms)
         if out is None:
             results[name] = {"status": "not configured"}
             continue
@@ -358,7 +382,8 @@ class Handler(BaseHTTPRequestHandler):
                 "rule": "modules/offpath-911 binding rule 1",
             })
 
-        reached, results = fan_out(message, contact, to)
+        reached, results = fan_out(message, contact, to,
+                                   sms=(payload.get("sms") or "").strip() or None)
         self._send(200 if reached else 502, {
             "reached": reached,
             "channels": results,

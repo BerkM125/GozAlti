@@ -21,24 +21,36 @@ struct Fix {
 }
 
 enum Situation {
-    /// One report, two channels. Calling and texting must not tell different stories.
-    static func report(contact: String, fix: Fix?, spoken: Bool) -> String {
-        var lines: [String] = []
-        lines.append(spoken
-            ? "This is an automated message from Gozalti Safe Walk."
-            : "GözAltı Safe Walk — automated message.")
-
-        if let fix {
-            lines.append(String(format: "Last known position %.5f, %.5f (±%.0f m, %@).",
-                                fix.lat, fix.lon, fix.accuracy, ageWords(fix.age)))
-            // Spoken aloud, a URL is noise. Texted, it is the entire point.
-            if !spoken { lines.append(fix.mapsLink) }
+    /// One event, two bodies. The call and the text must not tell different stories, but
+    /// they cannot carry the same words: a URL read aloud is noise, and an address spoken
+    /// once during a phone call is gone the moment it is said. So the voice promises the
+    /// text, and the text is what the contact still has in five minutes.
+    static func spoken(contact: String, fix: Fix?, address: String?) -> String {
+        var s = ["This is an automated message from Gozalti Safe Walk.",
+                 "\(contact), your friend left their planned route and confirmed by voice that they want you contacted."]
+        if let address, !address.isEmpty {
+            s.append("They are near \(address).")
+        } else if fix != nil {
+            s.append("Their exact coordinates are in the text message.")
         } else {
-            lines.append("No location fix was available.")
+            s.append("No location fix was available.")
         }
+        if fix != nil { s.append("Sending you their address by text now.") }
+        return s.joined(separator: " ")
+    }
 
-        lines.append("They left their planned route and confirmed by voice that they wanted you contacted.")
-        return lines.joined(separator: spoken ? " " : "\n")
+    static func texted(contact: String, fix: Fix?, address: String?) -> String {
+        var s = ["GözAltı Safe Walk — automated alert.",
+                 "\(contact): your friend left their planned route and confirmed by voice that they want you contacted."]
+        if let address, !address.isEmpty { s.append(address) }
+        if let fix {
+            s.append(String(format: "%.5f, %.5f (±%.0f m, %@)",
+                            fix.lat, fix.lon, fix.accuracy, ageWords(fix.age)))
+            s.append(fix.mapsLink)
+        } else {
+            s.append("No location fix was available.")
+        }
+        return s.joined(separator: "\n")
     }
 
     private static func ageWords(_ t: TimeInterval) -> String {
