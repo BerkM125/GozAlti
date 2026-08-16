@@ -260,11 +260,47 @@ def _hls_newest_segment_url(hls_url: str, cache_key: str | None = None) -> str |
     return target
 
 
+# --- HLS circuit breaker (16 Aug ~04:20) -----------------------------------
+# The Wowza host went unreachable from this network (TCP connects time out;
+# the snapshot host stayed fine). Every hls_frame then burned up to ~33 s of
+# connect timeouts INSIDE _FETCH_SEM, starving snapshot fetches too - all
+# camera feeds looked dead while the fix was one hostname away. After
+# _HLS_FAIL_MAX consecutive connection-level failures the hls path is
+# skipped entirely for _HLS_COOLDOWN_S (frames serve snapshots immediately),
+# then one probe re-opens it - live video recovers on its own when Wowza is
+# back. Only timeouts/connection errors count; a single dead stream's 404
+# must not switch the whole city to snapshots.
+_HLS_FAIL_MAX = 4
+_HLS_COOLDOWN_S = 90.0
+_hls_fail = 0
+_hls_down_until = 0.0
+_hls_state_lock = threading.Lock()
+
+
+def _hls_conn_ok() -> None:
+    global _hls_fail
+    with _hls_state_lock:
+        _hls_fail = 0
+
+
+def _hls_conn_bad() -> None:
+    global _hls_fail, _hls_down_until
+    with _hls_state_lock:
+        _hls_fail += 1
+        if _hls_fail >= _HLS_FAIL_MAX:
+            _hls_down_until = time.time() + _HLS_COOLDOWN_S
+            _hls_fail = 0
+            print(f"[feeds] hls breaker OPEN: wowza unreachable, "
+                  f"snapshot-only for {_HLS_COOLDOWN_S:.0f}s", flush=True)
+
+
 def hls_frame(node: dict) -> tuple[bytes | None, dict | None]:
     """Freshest frame from the camera's live stream: newest TS segment,
     decoded to its last frame. Returns (jpeg, FrameRecord) or (None, None)."""
     cid = node["camera_id"]
     if not node.get("has_stream") or not node.get("hls_url"):
+        return None, None
+    if time.time() < _hls_down_until:      # breaker open -> snapshot path
         return None, None
     if not _gate(f"hls:{cid}", config.HLS_MIN_INTERVAL_S):
         p = _cached_latest_path(cid)
@@ -277,6 +313,7 @@ def hls_frame(node: dict) -> tuple[bytes | None, dict | None]:
             seg = client().get(seg_url, timeout=15)
         if seg.status_code != 200 or not seg.content:
             return None, None
+        _hls_conn_ok()
         ts = time.time()
         d = config.SEGMENTS / cid
         d.mkdir(parents=True, exist_ok=True)
@@ -308,6 +345,8 @@ def hls_frame(node: dict) -> tuple[bytes | None, dict | None]:
         rec = _emit(cid, node, ts, path, "sdot-hls", stale=False, blob=blob)
         return blob, rec
     except Exception:
+        # timeouts/connection errors land here - the breaker's signal
+        _hls_conn_bad()
         return None, None
 
 
