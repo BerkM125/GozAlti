@@ -1,0 +1,9 @@
+node_modules/
+dist/
+.vite/
+data/
+*.tsbuildinfo
+
+# macOS AppleDouble artifacts from this volume
+._*
+.DS_Store

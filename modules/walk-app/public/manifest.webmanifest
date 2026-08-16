@@ -1,0 +1,10 @@
+{
+  "name": "GözAltı Safe Walk",
+  "short_name": "GözAltı",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f2f2f7",
+  "theme_color": "#f2f2f7",
+  "orientation": "portrait",
+  "icons": []
+}

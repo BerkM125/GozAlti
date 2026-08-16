@@ -1,0 +1,31 @@
+{
+  "name": "@gozalti/walk-app",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "bun run --parallel dev:api dev:web",
+    "dev:api": "bun --watch server/index.ts",
+    "dev:web": "vite",
+    "build": "tsc --noEmit && vite build",
+    "start": "NODE_ENV=production bun server/index.ts",
+    "smoke": "bun run server/smoke.ts",
+    "graph": "bun run server/graph.ts",
+    "tunnel": "cloudflared tunnel --url http://localhost:8020"
+  },
+  "dependencies": {
+    "hls.js": "^1.6.0",
+    "maplibre-gl": "^5.6.0",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.2.0",
+    "@types/geojson": "^7946.0.16",
+    "@types/react": "^19.1.0",
+    "@types/react-dom": "^19.1.0",
+    "@vitejs/plugin-react": "^4.7.0",
+    "typescript": "^5.8.3",
+    "vite": "^7.0.0"
+  }
+}
