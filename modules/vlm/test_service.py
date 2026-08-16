@@ -262,11 +262,23 @@ class TestLive(unittest.TestCase):
             return [{"camera_id": f"{tag}{i}", "captured_at": "2026-08-16T05:00:00Z",
                      "kind": "frame", "path": str(f), "source": "sdot-snapshot",
                      "stale": False} for i, f in enumerate(frames)]
+
+        def clear():
+            # Both halves must measure COMPUTE. On a warm cache a batch returns in ~0 ms,
+            # which made this test order-dependent and divided by zero on a second run.
+            urllib.request.urlopen(
+                urllib.request.Request(f"{self.BASE}/cache", method="DELETE"), timeout=10).read()
+
+        clear()
         t0 = time.time()
         for r in recs("S"):
             self.post("/read", r, timeout=300)
         serial_per_frame = (time.time() - t0) / len(frames)
+        clear()
         out = self.post("/read_batch", {"frames": recs("B")}, timeout=600)
+        self.assertGreater(out["per_frame_s"], 0.0,
+                           "batch returned instantly — cache was not cleared, "
+                           "so this measured nothing")
         self.assertEqual(out["concurrency"], service.CONCURRENCY)
         speedup = serial_per_frame / out["per_frame_s"]
         print(f"\n    serial {serial_per_frame:.2f}s/frame vs batch "
