@@ -41,7 +41,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from . import (activity, config, detect, feeds, netboot, observations,
-               orientation, vlm_forward)
+               orientation, refuge, solar, vlm_forward)
 from .graph import CameraGraph
 
 app = FastAPI(title="GozAlti media-ingest")
@@ -66,10 +66,13 @@ def _light(n: dict) -> dict:
     b = n.get("bearing") or {}
     live = detect.live_state(n["camera_id"])
     act = activity.effective_activity(n)
+    cop = n.get("copresence")
     return {
         "activity": act,
         "active": act.get("active") if act else None,
         "last_activity_at": n.get("last_activity_at"),
+        "last_person_at": cop.get("last_person_at") if cop else None,
+        "street_context": n.get("street_context"),
         "camera_id": n["camera_id"], "key": n.get("key"),
         "lat": n["lat"], "lon": n["lon"],
         "desc": n.get("location_desc"), "street": n.get("street_name"),
@@ -251,6 +254,65 @@ def api_analyze(cid: str):
     if res is None:
         raise HTTPException(502, "analysis failed")
     return res
+
+
+@app.get("/api/sun")
+def api_sun(lat: float = 47.61, lon: float = -122.33):
+    """Deterministic solar position right now (NOAA algorithm)."""
+    az, el = solar.solar_position(lat, lon, time.time())
+    return {"azimuth_deg": round(az, 1), "elevation_deg": round(el, 1),
+            "is_daylight": el > 0, "basis": "noaa-solar-position"}
+
+
+@app.get("/api/refuge")
+def api_refuge(lat: float, lon: float, radius_m: float = 150.0):
+    """Open businesses to duck into near a point. Scope is honest: counts
+    cover OSM places with a known opening_hours tag, evaluated live in
+    Seattle time; unparseable hours count as unknown, not closed."""
+    return refuge.near(lat, lon, radius_m)
+
+
+@app.get("/api/refuge/bbox")
+def api_refuge_bbox(s: float, w: float, n: float, e: float):
+    return refuge.in_bbox(s, w, n, e)
+
+
+@app.get("/api/refuge/street/{name}")
+def api_refuge_street(name: str):
+    nodes = G.street(name)
+    if not nodes:
+        raise HTTPException(404, f"no cameras on street {name!r}")
+    return refuge.along_street(nodes)
+
+
+@app.get("/api/context/{cid}")
+def api_context(cid: str):
+    """CameraContext — everything this module knows about one camera, for
+    the VLM/VSS side and synthesis. Every field carries its basis/source.
+    (Module-internal doc; graduating it into god-spec §6 is a team edit.)"""
+    node = _node_or_404(cid)
+    b = node.get("bearing") or {}
+    az, el = solar.solar_position(node["lat"], node["lon"], time.time())
+    return {
+        "camera_id": cid,
+        "key": node.get("key"),
+        "lat": node["lat"], "lon": node["lon"],
+        "location_desc": node.get("location_desc"),
+        "street": node.get("street_name"),
+        "neighborhood": node.get("neighborhood"),
+        "has_stream": bool(node.get("has_stream")),
+        "frame": feeds.latest_record(cid),                     # FrameRecord §6.1
+        "bearing": node.get("bearing"),
+        "activity": activity.effective_activity(node),         # pixel signal only
+        "last_activity_at": node.get("last_activity_at"),
+        "copresence": node.get("copresence"),                  # last person in view
+        "street_context": node.get("street_context"),          # structural OSM facts
+        "refuge": refuge.near(node["lat"], node["lon"], 150.0),
+        "sun": {"azimuth_deg": round(az, 1), "elevation_deg": round(el, 1),
+                "is_daylight": el > 0, "basis": "noaa-solar-position"},
+        "detections": detect.live_state(cid) or None,
+        "prior_observations": observations.priors(cid),
+    }
 
 
 @app.post("/api/read/{cid}")

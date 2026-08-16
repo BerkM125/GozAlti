@@ -95,3 +95,4 @@ ESRI_TILE = ("https://server.arcgisonline.com/ArcGIS/rest/services/"
              "World_Imagery/MapServer/tile/{z}/{y}/{x}")
 DARK_TILE = "https://basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png"
 OVERPASS = "https://overpass-api.de/api/interpreter"
+OVERPASS_MIRROR = "https://overpass.kumi.systems/api/interpreter"

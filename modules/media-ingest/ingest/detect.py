@@ -112,6 +112,15 @@ def analyze_camera(g: CameraGraph, camera_id: str) -> dict | None:
         _LIVE[camera_id] = result
         node["live"] = {"analyzed_at": result["analyzed_at"],
                         "n_detections": len(detections)}
+        # co-presence: mechanical "last person in view" — evidence attached,
+        # no inference beyond the detection itself
+        if any(d["label"] == "person" for d in detections):
+            node["copresence"] = {
+                "last_person_at": result["analyzed_at"],
+                "seen_by": camera_id,
+                "source": "fastlane-detect",
+                "frame": rec.get("path") if rec else None,
+            }
     return result
 
 

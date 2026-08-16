@@ -4,6 +4,12 @@
 
 Read `../../SPEC.md` first. Lane: this directory only.
 
+> **Agent-facing API + artifact reference lives in [`README.md`](README.md)** —
+> complete `:8030` endpoint table, the offline-vs-online split (what's saved
+> locally on the Spark vs what needs upstream fetches), artifact registry, and
+> DGX Spark run instructions. Other modules' sessions should read that first;
+> this file is the owner-facing spec (scope, contracts, definition of done).
+
 ## Scope
 
 Get footage and structure it as the VLM's input feed, as a service on **:8030**:
@@ -69,11 +75,17 @@ curl "localhost:8030/api/nearby?lat=47.6107&lon=-122.3378&radius_m=150"
 curl "localhost:8030/api/convergence?street=Pike%20Street"
 curl -o f.jpg "localhost:8030/api/frame/CMR-0270/latest.jpg"
 
-# 3. (optional) orientation precompute — sun layers always run; the
+# 3. enrichment builders — RUN THESE WITH THE SERVICE STOPPED (or restart it
+#    after): the service also writes camera_graph.json (activity flags), and
+#    concurrent writers clobber each other. Both cache their Overpass pulls.
+python -m ingest.refuge      # OSM POIs with opening_hours (~4.2k, one pull)
+python -m ingest.statics     # alleys/crossings/sidewalk/lit/camera spacing
+
+# 4. (optional) orientation precompute — sun layers always run; the
 #    satellite<->frame VLM reconciliation needs VLM_BASE_URL or ANTHROPIC_API_KEY
 python -m ingest.orientation --limit 25
 
-# 4. detection sweep (needs a VLM endpoint; without one, nodes carry no
+# 5. detection sweep (needs a VLM endpoint; without one, nodes carry no
 #    detections — nothing is fabricated)
 #    VLM_BASE_URL=http://<spark>:8040/v1 VLM_MODEL=<model>
 curl -X POST localhost:8030/api/sweep/start
@@ -126,24 +138,49 @@ into the contract is a god-spec §6 edit with owner sign-off.** Manual trigger:
 Known limitation vs surukamera's stack: the oneway+optical-flow bearing layer
 is not ported yet (heaviest layer; needs stream sampling over time).
 
-## Planned node/edge enrichment (non-LLM datapoints, not yet implemented)
+## Node enrichment — non-LLM datapoints (IMPLEMENTED)
 
-Graph nodes are open dicts, so these attach without schema changes:
+All attached to graph nodes / served per camera; every field carries its
+basis. Unknowns stay unknowns — a failed pull or missing tag is never
+reported as zero/closed/absent.
 
-- **Co-presence**: "last person seen on this road" — `last_activity_at`
-  (pixel-level) now exists on every node; the person-level version needs the
-  detection sweep's person detections rolled into a `last_person_at` field.
-- **Duck-into buildings**: nearby institutions/shops with `opening_hours`
-  (OSM/Overpass; optionally Google Places), keycard/security notes.
-- **Alley classification**: OSM `highway=service` + `service=alley` on nearby
-  ways — static, free, unbiased "sketchy alleyway" signal.
-- **Sidewalk presence/width, crosswalks, signalization** — OSM way tags.
-- **Block length** — distance between decision points along the snapped way.
-- **Distance to nearest open business** (from `opening_hours` at query time).
-- **Collision history normalized by pedestrian exposure** — joins safe-walk's
-  collision data (synthesis owns the risk math; we can store the raw join).
-- **Sun position for a given timestamp** — `ingest/solar.py` already computes
-  this deterministically; expose per-node day/night/glare state.
+- **Refuge / "duck into"** (`ingest/refuge.py` + `hours.py`): OSM POIs with
+  `opening_hours` (one cached Overpass pull, 4.2k places; `office=*`
+  filtered — not walk-in-able). open/closed evaluated **live** in Seattle
+  time by a pragmatic hours parser (unparseable → "unknown", never closed;
+  PH/SH holidays not modeled). Honest scope by construction: "N with known
+  hours, M open now, nearest open X m" — no completeness claim, OSM-only
+  (no Google Places; ToS forbids storing fields). Endpoints:
+  `GET /api/refuge?lat&lon&radius_m`, `/api/refuge/bbox`,
+  `/api/refuge/street/{name}`. **Lane note**: this static-OSM layer is
+  claimed by media-ingest as a graph attribute (like bearings); anything
+  requiring live scraping of business sites stays with Dhruv's osint —
+  raise at the table if it collides.
+- **Co-presence** (`copresence` on nodes): "last person in view" —
+  mechanical `max(read_at) where people_count > 0` from forwarded
+  Observations (`source: "vlm-observation"`), plus the fast-lane person
+  detections (`source: "fastlane-detect"`); frame reference attached.
+  Pixel-level `last_activity_at` complements it.
+- **Street context** (`ingest/statics.py`, `street_context` on nodes):
+  structural OSM facts — sidewalk tags, `lit`, camera spacing along street
+  (labeled as camera spacing, NOT "block length"), nearest mapped alley
+  distance, crossings within 100 m. Framing rule: alleys are structural
+  facts (fewer exits, no camera coverage), never "sketchy". Build:
+  `python -m ingest.statics` (Overpass mirror fallback; degrades to
+  partial with `source: "osm-partial"`).
+- **Sun position**: `GET /api/sun?lat&lon` + per-camera in context
+  (NOAA algorithm, deterministic).
+- **CameraContext**: `GET /api/context/{cid}` — one doc with everything
+  this module knows about a camera (frame §6.1, bearing, activity,
+  copresence, street_context, refuge, sun, detections, prior
+  observations). Module-internal; graduating it into god-spec §6 is a
+  team conversation, and these enrichments becoming `evidence[]` types in
+  SegmentAssessment §6.4 needs synthesis sign-off.
+
+Cut deliberately: ground-floor windows / security presence / keycard
+access — no queryable source exists; the open-business signal carries the
+same meaning with real data. Collision-history normalization stays with
+synthesis (denominator honesty: no made-up exposure model).
 
 Dev test UI (not committed): `experiments/berkan_testing/` — served at
 `http://localhost:8030/` automatically when the directory exists.

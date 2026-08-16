@@ -93,7 +93,7 @@ counts).
 | `modules/map-frontend` | Map Integration (front end) — **ESSENTIAL TO DEMO** | Ioli | 2–3 (ideally 4) | Map UI: routes, camera locations, camera previews, path analysis overlays (dots/outlines of people & hazards). |
 | `modules/harness` | Deterministic Step (harness) | Ioli | 1–2 | Deterministic logic: pathfinding, street/area → local cameras (camera convergence). No ML. |
 | `modules/vlm` | VLM Step — **model's output** | Adi (endpoints: Dhruv) | 4 | VLM analysis of footage on the Spark via VSS: detect people/hazards, structured output with pointable coordinates. |
-| `modules/media-ingest` | Media Data Scraping/Analysis — **model's input** | Berkan | 3 | Serve camera frames/clips TO the VLM: frequency, sizing, rate-limit discipline, storage, feed structure. |
+| `modules/media-ingest` | Media Data Scraping/Analysis — **model's input** | Berkan | 3 | Serve camera frames/clips TO the VLM — plus the **offline camera-context surface** (camera graph, street↔camera maps, bearings, activity flags, open-business hours, street facts, satellite/buildings). See §6.9 and `modules/media-ingest/README.md` before fetching any camera/street/OSM data yourself. |
 | `modules/osint` | Non-Media Scraping (optional) — **model's input** | Dhruv | 3 | Scrape Reddit/news/Seattle PD for area-level safety sentiment from past events and anecdotes. |
 | `modules/synthesis` | Data Synthesis — **model's output** | All (downstream) | 3 | Combine media evidence + VLM reads + osint sentiment into final per-segment assessments and live alerts. |
 | `demo/` | Demo/Video — **ESSENTIAL TO DEMO** | Min. 3 people | — | Demo script, filming plan, live run-of-show, fallback recordings. |
@@ -225,6 +225,40 @@ bearing stack; `bearing_conf` drives view-cone opacity in the UI.
 
 Harness ships as a Python library imported by synthesis (no port of its own).
 Live push is **SSE** (works over plain HTTP on a phone; no websocket infra needed).
+
+### 6.9 media-ingest context surface (`:8030`) — use it, don't re-fetch
+
+media-ingest runs **on the DGX Spark itself**, next to the vlm module, so every
+agent and module on the box has **instant local access** to its artifacts and
+endpoints. Binding rule for all sessions: **before fetching any camera, street,
+business-hours, building, satellite, or OSM data from the internet, check
+`modules/media-ingest/README.md` — it is almost certainly already served
+offline on `:8030`.** Duplicating those fetches wastes demo-critical time and
+risks upstream rate-limit bans (§7.5). Full endpoint + artifact reference:
+`modules/media-ingest/README.md`. Highlights:
+
+- **Offline, answers in milliseconds** (saved artifacts / pure computation):
+  camera graph queries (`/api/nearby`, `/api/convergence` §6.7, `/api/streets`,
+  `/api/street/{name}`), city-wide pixel-activity map (`/api/activity` —
+  which cameras show motion right now; never a people/safety claim),
+  open-businesses-near-a-point with live open/closed evaluation
+  (`/api/refuge…`), structural street facts (sidewalk/lit/alley/crossings on
+  every node), sun position (`/api/sun`), last detections
+  (`/api/detections`), Observation breadcrumbs (`/api/observations/{cid}`),
+  cached tiles/satellite/building footprints, and
+  **`GET /api/context/{cid}` — everything known about one camera in a single
+  document, the first stop when assembling VLM context.**
+- **Online but rate-gate-owned by media-ingest**: fresh snapshots
+  (`/api/frame/{cid}/latest.jpg`), live HLS proxy (`/api/hls/{key}/…`).
+  **No other module talks to SDOT/Wowza/Overpass/Esri directly.**
+- Integration hooks: `POST /api/priority` (synthesis marks en-route cameras
+  hot), `POST /api/read/{cid}` (hot-lane push to `:8040/read` with
+  `prior_observations` as a sibling key next to the untouched §6.1 record —
+  pending vlm-owner confirmation), `SYNTH_OBS_URL` (auto-forward of
+  Observations to synthesis).
+- Fresh clone / Spark setup: `data/` artifacts are gitignored — run the three
+  one-time builders in the README (graph build needs no network; refuge +
+  statics each cache a single Overpass pull).
 
 ## 7. Engineering practices (all modules, all sessions)
 

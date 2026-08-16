@@ -65,6 +65,15 @@ def read_camera(node: dict) -> dict | None:
     if not isinstance(obs, dict) or "camera_id" not in obs:
         return None   # not an Observation-shaped reply; don't store junk
     observations.record(cid, obs)
+    # co-presence from the authoritative VLM lane: max(read_at) where
+    # people_count > 0, straight off the Observation — no inference
+    if obs.get("people_count", 0) > 0 and obs.get("read_at"):
+        node["copresence"] = {
+            "last_person_at": obs["read_at"],
+            "seen_by": cid,
+            "source": "vlm-observation",
+            "frame": obs.get("frame_ts"),
+        }
     _forward_to_synthesis(obs)
     return obs
 
