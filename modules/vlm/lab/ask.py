@@ -121,7 +121,8 @@ def draw(image, text, model, outdir):
             continue
         d.ellipse([cx-6, cy-6, cx+6, cy+6], fill=(232,68,58), outline="white", width=2); n += 1
     outdir.mkdir(exist_ok=True)
-    out = outdir / f"{Path(image).stem}__{model.replace(':','-')}.jpg"
+    tag = "".join(c if c.isalnum() or c in ".-_" else "-" for c in Path(model).name)  # ok for paths & names
+    out = outdir / f"{Path(image).stem}__{tag}.jpg"
     im.save(out, quality=88)
     return f"{out} ({n} people marked)"
 
