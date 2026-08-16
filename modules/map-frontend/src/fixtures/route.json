@@ -1,0 +1,212 @@
+{
+  "shortest": {
+    "kind": "shortest",
+    "polyline": [
+      [47.6097, -122.3421],
+      [47.608399999999996, -122.3407],
+      [47.6071, -122.33930000000001],
+      [47.6058, -122.3379],
+      [47.6045, -122.3365],
+      [47.60325, -122.335325],
+      [47.602000000000004, -122.33415],
+      [47.60075, -122.332975],
+      [47.5995, -122.3318],
+      [47.5991, -122.33123333333333],
+      [47.5987, -122.33066666666667],
+      [47.5983, -122.3301]
+    ],
+    "length_m": 1261,
+    "segment_ids": [],
+    "cameras_en_route": [],
+    "evidence_summary": "shortest path, no risk weighting"
+  },
+  "safer": {
+    "kind": "safer",
+    "polyline": [
+      [47.6097, -122.3421],
+      [47.6089, -122.3402],
+      [47.6076, -122.3383],
+      [47.606, -122.3364],
+      [47.6039, -122.3343],
+      [47.6018, -122.3324],
+      [47.5998, -122.3311],
+      [47.5983, -122.3301]
+    ],
+    "length_m": 1412,
+    "segment_ids": [
+      "sw:1000", "sw:1001", "sw:1002", "sw:1003", "sw:1004", "sw:1005", "sw:1006"
+    ],
+    "cameras_en_route": [],
+    "evidence_summary": "weighted away from 2 of 7 higher-risk segment(s); 1.12x the direct distance",
+    "segments": [
+      {
+        "segment_id": "sw:1000",
+        "name": "Pike St, 1st → 2nd",
+        "geometry": {
+          "type": "LineString",
+          "coordinates": [
+            [-122.3421, 47.6097],
+            [-122.3402, 47.6089]
+          ]
+        },
+        "base_risk": 0.38,
+        "risk_parts": {
+          "lighting": 0.08,
+          "sidewalk": 0.04,
+          "crossings": 0.06,
+          "traffic": 0.11,
+          "collisions": 0.09
+        },
+        "live_penalty": -0.021,
+        "confidence": 0.48,
+        "stale": false
+      },
+      {
+        "segment_id": "sw:1001",
+        "name": "2nd Ave, Pike → Union",
+        "geometry": {
+          "type": "LineString",
+          "coordinates": [
+            [-122.3402, 47.6089],
+            [-122.3383, 47.6076]
+          ]
+        },
+        "base_risk": 0.33,
+        "risk_parts": {
+          "lighting": 0.12,
+          "sidewalk": 0.03,
+          "crossings": 0.05,
+          "traffic": 0.07,
+          "collisions": 0.06
+        },
+        "live_penalty": 0.009,
+        "confidence": 0.44,
+        "stale": false
+      },
+      {
+        "segment_id": "sw:1002",
+        "name": "3rd Ave, Union → Seneca",
+        "geometry": {
+          "type": "LineString",
+          "coordinates": [
+            [-122.3383, 47.6076],
+            [-122.3364, 47.606]
+          ]
+        },
+        "base_risk": 0.21,
+        "risk_parts": {
+          "lighting": 0.06,
+          "sidewalk": 0.02,
+          "crossings": 0.04,
+          "traffic": 0.05,
+          "collisions": 0.04
+        },
+        "live_penalty": -0.002,
+        "confidence": 0.6,
+        "stale": false,
+        "camera": {
+          "id": "SDOT-3RD-UNION",
+          "thumb_url": "/assets/cams/3rd-union.jpg",
+          "ts": "2026-08-15T21:14:02-07:00",
+          "surface": "dry",
+          "occlusion": "none"
+        }
+      },
+      {
+        "segment_id": "sw:1003",
+        "name": "3rd Ave, Seneca → Cherry",
+        "geometry": {
+          "type": "LineString",
+          "coordinates": [
+            [-122.3364, 47.606],
+            [-122.3343, 47.6039]
+          ]
+        },
+        "base_risk": 0.21,
+        "risk_parts": {
+          "lighting": 0.05,
+          "sidewalk": 0.02,
+          "crossings": 0.03,
+          "traffic": 0.06,
+          "collisions": 0.05
+        },
+        "live_penalty": -0.045,
+        "confidence": 0.68,
+        "stale": false
+      },
+      {
+        "segment_id": "sw:1004",
+        "name": "3rd Ave, Cherry → Yesler",
+        "geometry": {
+          "type": "LineString",
+          "coordinates": [
+            [-122.3343, 47.6039],
+            [-122.3324, 47.6018]
+          ]
+        },
+        "base_risk": 0.49,
+        "risk_parts": {
+          "lighting": 0.14,
+          "sidewalk": 0.09,
+          "crossings": 0.07,
+          "traffic": 0.08,
+          "collisions": 0.11
+        },
+        "live_penalty": -0.047,
+        "confidence": 0.64,
+        "stale": true,
+        "camera": {
+          "id": "SDOT-3RD-YESLER",
+          "thumb_url": "/assets/cams/3rd-yesler.jpg",
+          "ts": "2026-08-15T20:41:55-07:00",
+          "surface": "wet",
+          "occlusion": "partial"
+        }
+      },
+      {
+        "segment_id": "sw:1005",
+        "name": "2nd Ave Ext S, Yesler → Washington",
+        "geometry": {
+          "type": "LineString",
+          "coordinates": [
+            [-122.3324, 47.6018],
+            [-122.3311, 47.5998]
+          ]
+        },
+        "base_risk": 0.34,
+        "risk_parts": {
+          "lighting": 0.1,
+          "sidewalk": 0.06,
+          "crossings": 0.05,
+          "traffic": 0.06,
+          "collisions": 0.07
+        },
+        "live_penalty": -0.044,
+        "confidence": 0.45,
+        "stale": false
+      },
+      {
+        "segment_id": "sw:1006",
+        "name": "S Jackson St, 2nd → King",
+        "geometry": {
+          "type": "LineString",
+          "coordinates": [
+            [-122.3311, 47.5998],
+            [-122.3301, 47.5983]
+          ]
+        },
+        "base_risk": 0.28,
+        "risk_parts": {
+          "lighting": 0.07,
+          "sidewalk": 0.03,
+          "crossings": 0.04,
+          "traffic": 0.09,
+          "collisions": 0.05
+        },
+        "live_penalty": -0.012,
+        "confidence": 0.85,
+        "stale": false
+      }
+    ]
+  }
+}
