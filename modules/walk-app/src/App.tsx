@@ -1,11 +1,28 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import MapView from "./components/MapView.tsx";
 import { CameraPanel, NearbyPanel, SegmentSheet, type Placed } from "./components/Panels.tsx";
-import { fetchCameras, fetchDetections, fetchRoute, health, RouteError } from "./api.ts";
-import { NEARBY_CAMERA_LIMIT, NEARBY_RADIUS_M, WALK_M_PER_MIN } from "./config.ts";
+import { CameraSheet } from "./components/CameraSheet.tsx";
 import {
+  fetchCameras,
+  fetchDetections,
+  fetchFrameRecord,
+  fetchRoute,
+  fetchRouteCameras,
+  health,
+  RouteError,
+} from "./api.ts";
+import {
+  CENTER,
+  NEARBY_CAMERA_LIMIT,
+  NEARBY_RADIUS_M,
+  ROUTE_CORRIDOR_M,
+  WALK_M_PER_MIN,
+} from "./config.ts";
+import {
+  isObservation,
   isUnavailable,
   type Camera,
+  type FrameRecord,
   type LngLat,
   type Observation,
   type RouteResult,
@@ -53,6 +70,8 @@ export default function App() {
   });
   const { origin, dest } = pins;
   const [userPos, setUserPos] = useState<LngLat | null>(null);
+  /** Why we have no position, when we have none. Null once we do. */
+  const [locationWhy, setLocationWhy] = useState<string | null>(null);
 
   const [result, setResult] = useState<RouteResult | null>(null);
   const [routing, setRouting] = useState(false);
@@ -61,9 +80,11 @@ export default function App() {
   const [cameras, setCameras] = useState<Camera[]>([]);
   const [cameraError, setCameraError] = useState<string | null>(null);
   const [observations, setObservations] = useState<Map<string, Observation>>(new Map());
+  const [records, setRecords] = useState<Map<string, FrameRecord>>(new Map());
 
   const [panel, setPanel] = useState<Panel>(null);
   const [selectedSegment, setSelectedSegment] = useState<string | null>(null);
+  const [selectedCamera, setSelectedCamera] = useState<string | null>(null);
   const [ingestUp, setIngestUp] = useState<boolean | null>(null);
 
   // -- is the camera service there at all? ---------------------------------
@@ -71,6 +92,47 @@ export default function App() {
     health().then((h) => {
       if (!isUnavailable(h)) setIngestUp(h.media_ingest.ok);
     });
+  }, []);
+
+  // -- where is the walker? -------------------------------------------------
+  // Asked for once on load, so cameras appear without hunting for a control.
+  // The GeolocateControl on the map stays, for re-centring and the blue dot.
+  //
+  // Failure is normal and must be stated, never papered over: the browser only
+  // exposes a position in a secure context, so a phone opening the dev server
+  // over a plain-HTTP LAN address gets nothing. Falling back to downtown keeps
+  // the app useful, but the UI has to say the cameras are not near *you*.
+  useEffect(() => {
+    if (!("geolocation" in navigator)) {
+      setLocationWhy("This browser cannot share a location.");
+      return;
+    }
+    if (!window.isSecureContext) {
+      setLocationWhy(
+        "Location needs a secure connection. Open the app over HTTPS (bun run tunnel) or on localhost.",
+      );
+      return;
+    }
+    let cancelled = false;
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        if (cancelled) return;
+        setUserPos([pos.coords.longitude, pos.coords.latitude]);
+        setLocationWhy(null);
+      },
+      (err) => {
+        if (cancelled) return;
+        setLocationWhy(
+          err.code === err.PERMISSION_DENIED
+            ? "Location permission was declined."
+            : "Your location could not be determined.",
+        );
+      },
+      { enableHighAccuracy: true, timeout: 8000 },
+    );
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   // -- routing --------------------------------------------------------------
@@ -94,20 +156,26 @@ export default function App() {
     };
   }, [origin, dest]);
 
-  // -- cameras near the walker (or near the route while planning) ----------
-  const focus = useMemo<LngLat | null>(() => {
+  // -- cameras: the whole route when there is one, else around you ---------
+  // A route is a line, so asking for cameras "near" a single point on it would
+  // only ever surface the handful by that point, however long the walk. With a
+  // route active every camera overlooking it is shown, in passing order and
+  // uncapped; without one the query falls back to a radius around you.
+  const routeLine = result?.safer.polyline ?? null;
+
+  const focus = useMemo<LngLat>(() => {
     if (userPos) return userPos;
-    if (result) {
-      const mid = result.safer.polyline[Math.floor(result.safer.polyline.length / 2)];
-      if (mid) return [mid[1], mid[0]];
-    }
-    return null;
-  }, [userPos, result]);
+    return CENTER;
+  }, [userPos]);
 
   useEffect(() => {
-    if (!focus) return;
     let cancelled = false;
-    fetchCameras(focus[1], focus[0], NEARBY_RADIUS_M).then((res) => {
+
+    const load = routeLine
+      ? fetchRouteCameras(routeLine, ROUTE_CORRIDOR_M)
+      : fetchCameras(focus[1], focus[0], NEARBY_RADIUS_M);
+
+    load.then((res) => {
       if (cancelled) return;
       if (isUnavailable(res)) {
         setCameraError(res.why);
@@ -115,20 +183,70 @@ export default function App() {
         return;
       }
       setCameraError(null);
-      const ranked = res.cameras
-        .map((c) => ({ ...c, distance_m: dist(focus, [c.lon, c.lat]) }))
-        // Cameras with a live stream earn their place first; distance breaks ties.
-        .sort((a, b) => {
-          const live = Number(!!b.live_hls) - Number(!!a.live_hls);
-          return live !== 0 ? live : a.distance_m - b.distance_m;
-        })
-        .slice(0, NEARBY_CAMERA_LIMIT);
-      setCameras(ranked);
+
+      if (routeLine) {
+        // Already ordered along the route by the server, and deliberately not
+        // truncated: a camera near the far end matters just as much as one by
+        // the start.
+        setCameras(res.cameras);
+        return;
+      }
+
+      // No route: nearest to you wins, full stop. Only the opened camera
+      // streams, so having a stream is no reason to bump a closer camera down.
+      setCameras(
+        res.cameras
+          .map((c) => ({ ...c, distance_m: c.distance_m ?? dist(focus, [c.lon, c.lat]) }))
+          .sort((a, b) => (a.distance_m ?? 0) - (b.distance_m ?? 0))
+          .slice(0, NEARBY_CAMERA_LIMIT),
+      );
     });
     return () => {
       cancelled = true;
     };
-  }, [focus]);
+  }, [focus, routeLine]);
+
+  // -- how old is each frame on screen? ------------------------------------
+  // Invariant #2: every camera image carries an honest age, and that has to
+  // hold with no VLM in the picture. `/api/frame/:cid/record` answers from
+  // media-ingest's memory and never triggers an upstream fetch, so polling it
+  // on the tile refresh cadence costs nothing. It 404s until that camera's
+  // first frame lands, hence the early retry.
+  useEffect(() => {
+    if (cameras.length === 0) return;
+    let cancelled = false;
+
+    // Which cameras have answered at least once, tracked here rather than read
+    // back out of state, so the retry does not depend on a render having
+    // happened yet.
+    const got = new Set<string>();
+
+    /** `onlyMissing` limits the sweep to cameras that have never answered. */
+    const pull = (onlyMissing = false) => {
+      for (const c of cameras) {
+        if (onlyMissing && got.has(c.camera_id)) continue;
+        fetchFrameRecord(c.camera_id).then((r) => {
+          if (cancelled || isUnavailable(r) || typeof r?.captured_at !== "string") return;
+          got.add(c.camera_id);
+          setRecords((prev) => new Map(prev).set(c.camera_id, r));
+        });
+      }
+    };
+
+    pull();
+    // A record 404s until that camera's first frame lands, so retry - but only
+    // for the ones still missing. A route can carry thirty cameras, and
+    // re-asking for all of them would be a burst of pointless requests.
+    const retry = setTimeout(() => pull(true), 4000);
+    // 60 s, matching the snapshot floor: a record cannot meaningfully change
+    // faster than the frame the tile is showing.
+    const t = setInterval(() => pull(false), 60_000);
+    return () => {
+      cancelled = true;
+      clearTimeout(retry);
+      clearInterval(t);
+    };
+  }, [cameras]);
 
   // -- VLM reads for exactly the cameras on screen -------------------------
   useEffect(() => {
@@ -136,7 +254,10 @@ export default function App() {
     for (const c of cameras) {
       if (observations.has(c.camera_id)) continue;
       fetchDetections(c.camera_id).then((obs) => {
-        if (cancelled || isUnavailable(obs)) return;
+        // `{}` comes back for a camera nothing has analysed yet. Storing it
+        // would make the tile claim the camera returned no description, when
+        // in truth it was never read.
+        if (cancelled || !isObservation(obs)) return;
         setObservations((prev) => new Map(prev).set(c.camera_id, obs));
       });
     }
@@ -179,10 +300,28 @@ export default function App() {
   }, [cameras, observations, result, userPos]);
 
   // -- interaction ----------------------------------------------------------
-  // First tap sets the start, second the destination, third starts over.
-  const onMapTap = useCallback((p: LngLat) => {
-    setPins((prev) => (prev.origin && !prev.dest ? { ...prev, dest: p } : { origin: p, dest: null }));
-  }, []);
+  // Knowing where you are changes what a tap means. With a position, you are
+  // the start and one tap is enough to route. Without one, it stays the old
+  // two-tap flow: first tap the start, second the destination, third start over.
+  const onMapTap = useCallback(
+    (p: LngLat) => {
+      setPins((prev) => {
+        if (prev.origin && !prev.dest) return { ...prev, dest: p };
+        if (prev.origin) return { origin: p, dest: null }; // third tap resets
+        if (userPos) return { origin: userPos, dest: p };
+        return { origin: p, dest: null };
+      });
+    },
+    [userPos],
+  );
+
+  // `cameras` is refetched whenever `focus` moves. A selection that dropped
+  // out of the list would leave the viewer showing nothing.
+  useEffect(() => {
+    if (selectedCamera && !cameras.some((c) => c.camera_id === selectedCamera)) {
+      setSelectedCamera(null);
+    }
+  }, [cameras, selectedCamera]);
 
   // Anything derived from a route is meaningless the moment the pins move.
   useEffect(() => {
@@ -200,7 +339,20 @@ export default function App() {
     setRouteError(null);
   };
 
+  /** Opening a camera closes the list, so only one sheet is ever up. */
+  const openCamera = useCallback((id: string) => {
+    setSelectedCamera(id);
+    setPanel(null);
+  }, []);
+
+  /** The map's GeolocateControl is the other way a position arrives. */
+  const onGeolocate = useCallback((p: LngLat) => {
+    setUserPos(p);
+    setLocationWhy(null);
+  }, []);
+
   const segment = result?.segments.find((s) => s.segment_id === selectedSegment) ?? null;
+  const camera = cameras.find((c) => c.camera_id === selectedCamera) ?? null;
   const detourPct = result ? Math.round((result.detour_ratio - 1) * 100) : 0;
 
   return (
@@ -210,14 +362,15 @@ export default function App() {
         result={result}
         origin={origin}
         dest={dest}
+        userPos={userPos}
         cameras={cameras}
         detections={mapDetections}
         selectedSegment={selectedSegment}
-        selectedCamera={null}
+        selectedCamera={selectedCamera}
         onSelectSegment={setSelectedSegment}
-        onSelectCamera={() => setPanel("cameras")}
+        onSelectCamera={openCamera}
         onMapTap={onMapTap}
-        onUserLocation={setUserPos}
+        onUserLocation={onGeolocate}
       />
 
       <header className="topbar glass">
@@ -266,7 +419,12 @@ export default function App() {
       </nav>
 
       <div className={`dock glass ${result || routeError ? "" : "is-empty"}`}>
-        {!origin && <p className="hint">Tap the map to set your start.</p>}
+        {!origin &&
+          (userPos ? (
+            <p className="hint">Tap where you're walking to. The route starts from you.</p>
+          ) : (
+            <p className="hint">Tap the map to set your start.</p>
+          ))}
         {origin && !dest && <p className="hint">Now tap where you're walking to.</p>}
         {routing && <p className="hint">Finding a route…</p>}
         {routeError && <p className="banner banner-refuse">{routeError}</p>}
@@ -302,13 +460,25 @@ export default function App() {
 
       {segment && <SegmentSheet segment={segment} onClose={() => setSelectedSegment(null)} />}
 
-      {panel === "cameras" && (
+      {camera && (
+        <CameraSheet
+          camera={camera}
+          observation={observations.get(camera.camera_id) ?? null}
+          record={records.get(camera.camera_id) ?? null}
+          onClose={() => setSelectedCamera(null)}
+        />
+      )}
+
+      {panel === "cameras" && !camera && (
         <CameraPanel
           cameras={cameras}
           observations={observations}
+          records={records}
           unavailable={cameraError}
+          locationWhy={locationWhy}
+          onRoute={!!routeLine}
           onClose={() => setPanel(null)}
-          onSelect={() => {}}
+          onSelect={openCamera}
         />
       )}
 

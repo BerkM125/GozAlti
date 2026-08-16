@@ -43,7 +43,14 @@ export type RouteResult = {
   };
 };
 
-/** SPEC.md §6.7 - one camera in a convergence result. */
+/**
+ * SPEC.md §6.7 - one camera in a convergence result.
+ *
+ * `live_hls` and `snapshot_url` arrive as this app's own same-origin proxy
+ * paths, not the upstream SDOT/Wowza URLs §6.7's example shows. The walk-app
+ * server rewrites them (see `server/index.ts`) so no byte reaches SDOT without
+ * passing media-ingest's rate limiter.
+ */
 export type Camera = {
   camera_id: string;
   lat: number;
@@ -55,12 +62,25 @@ export type Camera = {
   /** media-ingest extension: pixel change between two timestamped frames. */
   active?: boolean | null;
   last_activity_at?: string | null;
-  distance_m?: number;
+  /**
+   * How far off your way this camera sits: distance to the point you asked
+   * about, or perpendicular distance to the route when a route is active.
+   */
+  distance_m?: number | null;
+  /** How far along the route the camera sits. Null when there is no route. */
+  along_m?: number | null;
+  /** Intersection this camera watches, e.g. "2nd Ave & Spring St". */
+  desc?: string | null;
+  street?: string | null;
 };
 
 export type Convergence = { cameras: Camera[] } | Unavailable;
 
-/** SPEC.md §6.2 - one VLM read of one frame. */
+/**
+ * One VLM read of one frame, as media-ingest's `/api/detections/{cid}` serves
+ * it. This is media-ingest's live-state record, which wraps a §6.1 FrameRecord
+ * and carries §6.2's detections - it is not literally the §6.2 Observation.
+ */
 export type Detection = {
   label: string;
   cx: number;
@@ -80,10 +100,30 @@ export type Observation = {
   camera_id: string;
   analyzed_at: string;
   ok: true;
-  frame?: { captured_at: string; stale?: boolean };
+  frame?: FrameRecord;
   model: string;
   detections: Detection[];
   caption: string;
+};
+
+/**
+ * SPEC.md §6.1 - what media-ingest last actually pulled for this camera.
+ *
+ * This, not the VLM read, is what makes the age badge possible: a camera with
+ * no VLM backend still has a frame with a timestamp, and invariant #2 says
+ * every image carries an honest age. `source` distinguishes a frame decoded
+ * from the live stream (~6 s old) from a polled JPEG (up to 60 s) from one
+ * served off disk because the rate gate was shut.
+ */
+export type FrameRecord = {
+  camera_id: string;
+  captured_at: string;
+  lat?: number | null;
+  lon?: number | null;
+  kind?: string;
+  path?: string | null;
+  source?: "sdot-snapshot" | "sdot-hls" | "disk-cache" | "phone" | string;
+  stale?: boolean;
 };
 
 /** Every upstream call can come back like this, and the UI must render it. */
@@ -91,6 +131,17 @@ export type Unavailable = { ok: false; why: string };
 
 export const isUnavailable = (v: unknown): v is Unavailable =>
   typeof v === "object" && v !== null && (v as Unavailable).ok === false;
+
+/**
+ * True only for a camera read that actually happened.
+ *
+ * `/api/detections/{cid}` answers `{}` for a camera nothing has analysed yet,
+ * which `isUnavailable` does not catch because there is no `ok: false`. Storing
+ * that as an observation makes the UI say the camera returned no description
+ * when in truth it was never read - so every consumer goes through here.
+ */
+export const isObservation = (v: unknown): v is Observation =>
+  typeof v === "object" && v !== null && (v as Observation).ok === true;
 
 /** SPEC.md §6.5 - live push. */
 export type Alert = {
