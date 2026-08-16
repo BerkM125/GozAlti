@@ -13,7 +13,7 @@ Two tiers:
 
 Run the unit tier in CI and before every push; run --live on the box after deploying.
 """
-import argparse, json, sys, unittest, urllib.request, os
+import argparse, json, sys, time, unittest, urllib.error, urllib.request, os
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -180,6 +180,51 @@ class TestLive(unittest.TestCase):
                                   "source": "sdot-snapshot", "stale": True})
         self.assertIn("camera_dead", obs["flags"])
         self.assertEqual(obs["model"], "none")
+
+    def test_batch_rejects_oversized(self):
+        """A runaway caller must not be able to queue unbounded GPU work."""
+        big = [{"camera_id": f"T{i}", "captured_at": "2026-08-16T05:00:00Z", "kind": "frame",
+                "path": "x.jpg", "source": "sdot-snapshot", "stale": True}
+               for i in range(service.MAX_BATCH + 1)]
+        try:
+            self.post("/read_batch", {"frames": big}, timeout=30)
+            self.fail("oversized batch should be rejected with 413")
+        except urllib.error.HTTPError as e:
+            self.assertEqual(e.code, 413)
+
+    def test_batch_isolates_a_bad_frame(self):
+        """One missing file must not sink the whole sweep."""
+        good = sorted((HERE / "lab" / "samples").glob("*.jpg"))[0]
+        out = self.post("/read_batch", {"frames": [
+            {"camera_id": "GOOD", "captured_at": "2026-08-16T05:00:00Z", "kind": "frame",
+             "path": str(good), "source": "sdot-snapshot", "stale": False},
+            {"camera_id": "MISSING", "captured_at": "2026-08-16T05:00:00Z", "kind": "frame",
+             "path": "/nope/gone.jpg", "source": "sdot-snapshot", "stale": False}]})
+        obs = out["observations"]
+        self.assertEqual(len(obs), 2, "order and length must be preserved")
+        self.assertEqual(obs[0]["camera_id"], "GOOD")
+        self.assertNotIn("error", obs[0], "good frame should still succeed")
+        self.assertEqual(obs[1]["camera_id"], "MISSING")
+        self.assertIn("error", obs[1])
+        self.assertEqual(out["ok"], 1)
+        self.assertEqual(out["failed"], 1)
+
+    def test_batch_concurrency_beats_serial(self):
+        """The whole point of the batch endpoint: it must be faster per frame than /read."""
+        frames = sorted((HERE / "lab" / "samples").glob("*.jpg"))[:4]
+        if len(frames) < 4:
+            self.skipTest("need 4 sample frames")
+        recs = [{"camera_id": f"C{i}", "captured_at": "2026-08-16T05:00:00Z", "kind": "frame",
+                 "path": str(f), "source": "sdot-snapshot", "stale": False}
+                for i, f in enumerate(frames)]
+        t0 = time.time(); self.post("/read", recs[0], timeout=300)
+        serial_per_frame = time.time() - t0
+        out = self.post("/read_batch", {"frames": recs}, timeout=600)
+        self.assertEqual(out["concurrency"], service.CONCURRENCY)
+        print(f"\n    serial {serial_per_frame:.2f}s/frame vs batch "
+              f"{out['per_frame_s']:.2f}s/frame at concurrency {out['concurrency']}")
+        self.assertLess(out["per_frame_s"], serial_per_frame,
+                        "batch should be faster per frame than one-at-a-time")
 
     def test_batch(self):
         frames = sorted((HERE / "lab" / "samples").glob("*.jpg"))[:2]

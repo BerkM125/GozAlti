@@ -25,6 +25,7 @@ Two things this enforces that the scripts did not:
     camera_dead with no detections and no invented caption.
 """
 import json, os, re, sys, time, threading, base64, urllib.request
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -38,6 +39,17 @@ OLLAMA = os.environ.get("OLLAMA_URL", "http://127.0.0.1:11434")
 VLM_MODEL = os.environ.get("VLM_MODEL", "qwen3-vl:8b")
 DET_ARCH = os.environ.get("VLM_DET_ARCH", "fasterrcnn")
 REPO = Path(os.environ.get("GOZALTI_ROOT", "/repo"))
+
+# Measured on the GB10, not guessed (6 frames, qwen3-vl:8b):
+#   concurrency 1 -> 3.22 s/frame   2 -> 2.25 s/frame   4 -> 2.27 s/frame
+# ollama saturates at 2 with default settings; beyond that throughput is flat and
+# per-call latency doubles (6.95 s), which only hurts anyone waiting on a single read.
+# Raising it needs OLLAMA_NUM_PARALLEL on the ollama service, which needs root.
+# The detector is NOT batched: measured 74.5 ms/frame at batch 1 and 85-87 ms batched,
+# because frames are different sizes and get padded to the largest. It stays serial
+# under _lock; VLM calls overlap around it, which pipelines the two stages for free.
+CONCURRENCY = int(os.environ.get("VLM_CONCURRENCY", "2"))
+MAX_BATCH = int(os.environ.get("VLM_MAX_BATCH", "64"))
 
 # The closed flag enum this module emits (SPEC §6.2 says it is defined here).
 FLAGS = [
@@ -61,7 +73,9 @@ FLAGSET = set(FLAGS)
 
 _det = None
 _lock = threading.Lock()
-_stats = {"reads": 0, "schema_retries": 0, "schema_failures": 0, "dead": 0, "started": time.time()}
+_stats = {"reads": 0, "schema_retries": 0, "schema_failures": 0, "dead": 0,
+          "batches": 0, "batch_frames": 0, "started": time.time()}
+_pool = ThreadPoolExecutor(max_workers=max(1, CONCURRENCY), thread_name_prefix="vlm")
 
 
 def now_iso():
@@ -248,6 +262,23 @@ def observe(rec):
     return base
 
 
+def read_one(rec):
+    """One FrameRecord -> Observation, or {camera_id, error}. Never raises: a batch of 40
+    must not die because one camera's frame went missing mid-sweep."""
+    try:
+        obs = observe(rec)
+        problems = validate(obs)
+        if problems:
+            return {"camera_id": rec.get("camera_id"), "error": "schema",
+                    "problems": problems[:4]}
+        _stats["reads"] += 1
+        return obs
+    except FileNotFoundError as e:
+        return {"camera_id": rec.get("camera_id"), "error": str(e)}
+    except Exception as e:
+        return {"camera_id": rec.get("camera_id"), "error": f"{type(e).__name__}: {e}"}
+
+
 # ---------- HTTP -------------------------------------------------------------------
 
 class H(BaseHTTPRequestHandler):
@@ -272,6 +303,7 @@ class H(BaseHTTPRequestHandler):
                 "module": "vlm", "port": PORT, "ok": True,
                 "detector": DET_ARCH, "detector_loaded": _det is not None,
                 "vlm": VLM_MODEL, "ollama": OLLAMA,
+                "concurrency": CONCURRENCY, "max_batch": MAX_BATCH,
                 "uptime_s": round(time.time() - _stats["started"]),
                 **{k: v for k, v in _stats.items() if k != "started"}})
         if p == "/flags":
@@ -297,18 +329,26 @@ class H(BaseHTTPRequestHandler):
                 _stats["reads"] += 1
                 return self._json(200, obs)
             if p == "/read_batch":
-                out = []
-                for rec in payload.get("frames", []):
-                    try:
-                        obs = observe(rec)
-                        if validate(obs):
-                            obs = {"camera_id": rec.get("camera_id"), "error": "schema"}
-                        else:
-                            _stats["reads"] += 1
-                    except Exception as e:
-                        obs = {"camera_id": rec.get("camera_id"), "error": str(e)}
-                    out.append(obs)
-                return self._json(200, {"observations": out})
+                frames = payload.get("frames", [])
+                if not isinstance(frames, list):
+                    return self._json(400, {"error": "frames must be a list"})
+                if len(frames) > MAX_BATCH:
+                    return self._json(413, {"error": f"batch too large: {len(frames)} > "
+                                                     f"{MAX_BATCH}", "max_batch": MAX_BATCH})
+                t0 = time.time()
+                # Order is preserved and one bad frame never sinks the batch: each item
+                # returns either an Observation or {camera_id, error}.
+                out = list(_pool.map(read_one, frames))
+                wall = time.time() - t0
+                ok = sum(1 for o in out if "error" not in o)
+                _stats["batches"] += 1
+                _stats["batch_frames"] += len(frames)
+                return self._json(200, {
+                    "observations": out,
+                    "count": len(out), "ok": ok, "failed": len(out) - ok,
+                    "wall_s": round(wall, 2),
+                    "per_frame_s": round(wall / len(out), 2) if out else None,
+                    "concurrency": CONCURRENCY})
         except FileNotFoundError as e:
             return self._json(404, {"error": str(e)})
         except Exception as e:
@@ -317,7 +357,8 @@ class H(BaseHTTPRequestHandler):
 
 
 def main():
-    print(f"vlm service :{PORT}  detector={DET_ARCH}  vlm={VLM_MODEL}  repo={REPO}", flush=True)
+    print(f"vlm service :{PORT}  detector={DET_ARCH}  vlm={VLM_MODEL}  repo={REPO}  "
+          f"concurrency={CONCURRENCY}  max_batch={MAX_BATCH}", flush=True)
     if os.environ.get("VLM_PRELOAD", "1") == "1":
         threading.Thread(target=lambda: (detector(), print("[vlm] detector warm", flush=True)),
                          daemon=True).start()
