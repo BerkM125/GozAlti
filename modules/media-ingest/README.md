@@ -123,15 +123,45 @@ All responses JSON unless noted. Every enrichment field carries its
 | `POST /api/priority {"camera_ids": [...]}` | mark hot-lane cameras (en-route) — processed first every pass |
 | `POST /api/sweep/start` / `/api/sweep/stop`, `GET /api/sweep/status` | BFS traversal loop over all cameras, 10 s rest between passes; activity flag drives the hot/slow lanes; **runs with no VLM backend too** (fetch-only passes keep activity flags fresh) |
 
-### 2.5 Local OpenCV CNN — cars + people with world positions (no VLM, no internet)
+### 2.5 Local CV — cars + people with world positions (no VLM, no internet)
 
-**Fully local object detection**: YOLOv4-tiny through `cv2.dnn` in a pool of
-worker **processes** (`CV_WORKERS`, GIL-free parallel inference, net loaded
-once per worker and kept warm), then a mathematics layer that converts pixel
-boxes into lat/lon estimates using the camera's resolved bearing, an assumed
-FOV, and known-height pinhole ranging. One-time install:
-**`python -m ingest.setup_cv`** (pip deps + ~24 MB model download + smoke
-test) — after that inference needs zero network.
+**Inference is reconciled with the vlm module — there is ONE detection
+layer in this repo.** The **source of truth is Adi's
+`modules/vlm/lab/detlib.py`** (torchvision Faster/Mask/Keypoint R-CNN,
+COCO weights, ~60–77 ms/frame on the Spark's GPU, benchmarked in his
+docstring). media-ingest imports it **read-only** and adapts its raw output
+— same weights, same transforms, same thresholds, same class semantics
+(`VEHICLE_CLASSES`), so a "person at 0.95" means the identical thing on
+both sides. Backend policy (`CV_BACKEND`):
+
+- `auto` (default): **detlib wherever CUDA exists** (the Spark — always his
+  stack there); CPU-only dev boxes fall back to YOLOv4-tiny/`cv2.dnn` purely
+  for latency (detlib on CPU ≈ 7 s/frame vs yolo ≈ 0.2 s) — results are
+  labeled `cpu-latency fallback` so provenance is never ambiguous.
+- `detlib` / `yolo`: force either. `CV_ARCH` picks his architecture
+  (fasterrcnn default; keypointrcnn = people-only + facing), `CV_MIN_SIZE`
+  is his measured resolution knob.
+
+**The latency question is purely an orchestration/rendering concern, not a
+second inference layer**: how frames reach the detector and how results
+reach the map is this module's machinery (streaming, prefetch, caching
+below); *what constitutes a detection* is detlib's alone.
+
+The mathematics layer then converts pixel boxes into lat/lon estimates
+using the camera's resolved bearing, an assumed FOV, and known-height
+pinhole ranging. One-time install: **`python -m ingest.setup_cv`** (pip
+deps incl. torch — with an automatic Windows MAX_PATH workaround — plus
+the ~24 MB fallback model + smoke test).
+
+**Live streaming frame pull**: for hot cameras (recently requested), a
+`CamStreamer` (`ingest/stream.py`) holds the HLS stream open through
+ffmpeg's demuxer and decodes frames **as chunks arrive** — the live edge,
+not completed-segment polling. Upstream cost = exactly one ordinary viewer
+per streamed camera, hard-capped: ≤ `STREAM_MAX` (3) concurrent streamers,
+each auto-stops `STREAM_IDLE_TTL_S` (30 s) after its last request, stalled
+streams reopen once then fall back to segment polling. Streamed frames are
+periodically fed back through the frame store so activity flags /
+FrameRecords / the snapshot pane stay consistent.
 
 | Endpoint | What it does |
 |---|---|
@@ -245,9 +275,10 @@ endpoints, retention).
 `ingest/graph.py` camera graph + spatial/street queries · `feeds.py` rate-gated
 snapshots + HLS segment frames, FrameRecord emission · `activity.py` binary
 pixel-activity flag · `detect.py` BFS detection sweep + hot lane ·
-`cvdetect.py` local CNN layer (process pool, per-frame result cache) ·
-`locate.py` mathematics layer (pixel box → lat/lon) · `setup_cv.py` one-command
-CV installer/orchestrator · `orientation.py` + `solar.py` bearing stack + sun ·
+`cvdetect.py` local CV layer (detlib backend + yolo fallback, per-frame
+result cache, hot-camera prefetch) · `stream.py` live HLS streamers (frames
+as chunks arrive) · `locate.py` mathematics layer (pixel box → lat/lon) ·
+`setup_cv.py` one-command CV installer/orchestrator · `orientation.py` + `solar.py` bearing stack + sun ·
 `refuge.py` + `hours.py` open-business layer + OSM hours evaluator ·
 `statics.py` street-context builder · `observations.py` + `vlm_forward.py`
 breadcrumbs + `:8040/read` push · `vlm_client.py` OpenAI-compatible VLM

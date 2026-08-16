@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import subprocess
 import sys
+from pathlib import Path
 
 from . import config
 
@@ -29,6 +30,37 @@ def _pip_install() -> bool:
     proc = subprocess.run([sys.executable, "-m", "pip", "install", "-q",
                            "-r", str(req)])
     return proc.returncode == 0
+
+
+def _pip_install_torch() -> bool:
+    """torch + torchvision for the detlib backend (Adi's stack — the
+    source-of-truth inference). On the Spark these already exist (CUDA
+    build in the vllm container / torchcache). On a Windows dev box with
+    long paths disabled, a deep venv path breaks extraction (WinError
+    206) — fall back to a short --target dir linked in via a .pth file."""
+    try:
+        import torch  # noqa: F401
+        print("[setup_cv] torch already importable — skipping")
+        return True
+    except ImportError:
+        pass
+    args = [sys.executable, "-m", "pip", "install", "-q",
+            "torch", "torchvision"]
+    if sys.platform == "win32":
+        args += ["--index-url", "https://download.pytorch.org/whl/cpu"]
+    print("[setup_cv] installing torch + torchvision (detlib backend) ...")
+    if subprocess.run(args).returncode == 0:
+        return True
+    if sys.platform == "win32":
+        short = "C:\\gozalti-torch"
+        print(f"[setup_cv] retrying via short path {short} (MAX_PATH workaround)")
+        if subprocess.run(args + ["--target", short]).returncode == 0:
+            import site
+            sp = next(p for p in site.getsitepackages() if p.endswith("site-packages"))
+            (Path(sp) / "gozalti_torch.pth").write_text(short + "\n")
+            return True
+    print("[setup_cv] torch install failed — CV_BACKEND falls back to yolo")
+    return False
 
 
 def _find_test_frame() -> bytes | None:
@@ -48,6 +80,8 @@ def main() -> int:
         if not _pip_install():
             print("[setup_cv] pip install failed — fix the env and re-run")
             return 1
+    if "--no-torch" not in sys.argv:
+        _pip_install_torch()   # failure is non-fatal: yolo fallback covers it
 
     from . import cvdetect   # after pip so cv2/numpy are importable
 
