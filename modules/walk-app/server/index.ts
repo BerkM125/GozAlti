@@ -16,7 +16,7 @@
  */
 
 import { join } from "node:path";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { getGraph, type WalkGraph } from "./graph.ts";
 import { assess, NodeIndex, planRoute, type Algorithm } from "./routing.ts";
 import { camerasAlongRoute, toConvergenceCamera, type LightCamera } from "./cameras.ts";
@@ -75,6 +75,79 @@ const blocksJson = JSON.stringify({
   })),
 });
 const blocksGz = Bun.gzipSync(Buffer.from(blocksJson));
+
+// Consolidated-router static weights (collisions + osint), lazily built on
+// first request so a checkout without the pathfinding artifacts still boots
+// instantly. See the /api/blocks/router handler for what and why.
+let routerBlocks: { json: string; gz: Uint8Array<ArrayBuffer> } | { why: string } | null = null;
+
+function buildRouterBlocks(): { json: string; gz: Uint8Array<ArrayBuffer> } | { why: string } {
+  const graphPath = join(ROOT, "modules/harness/data/walk_graph.json");
+  const staticPath = join(ROOT, "modules/pathfinding/data/edge_static.json");
+  let g: { nodes: [number, number][]; edges: [number, number, number, number][] };
+  let s: { edges: { collisions: number; osint: number }[] };
+  try {
+    g = JSON.parse(readFileSync(graphPath, "utf8"));
+    s = JSON.parse(readFileSync(staticPath, "utf8"));
+  } catch {
+    return {
+      why:
+        "pathfinding artifacts not built - run modules/harness/scripts/build-graph.py " +
+        "then python -m pathfind.build_static",
+    };
+  }
+  // Positional overlay: a mismatch means WRONG weights, not stale ones.
+  if (s.edges.length !== g.edges.length) {
+    return { why: "edge_static.json does not match walk_graph.json - rerun pathfind.build_static" };
+  }
+  // The router's own weights for these two parts (cost model, pathfinding
+  // SPEC): collisions .24, osint .10. Rendered risk is rescaled onto the
+  // ramp domain the OSM layer already uses, so one colour scale serves both;
+  // the raw weighted parts ride along per feature for honesty.
+  const rc = (e: { collisions: number; osint: number }) => 0.24 * e.collisions + 0.1 * e.osint;
+  // SDOT collision density saturates across most of downtown, so a linear
+  // rescale paints one flat colour. Rank the served edges instead: the ramp
+  // then discriminates within the evidence, and the legend stays what it is,
+  // a relative lower/higher, never an absolute score.
+  const served = s.edges.map(rc).filter((r) => r >= 0.02);
+  served.sort((a, b) => a - b);
+  const pct = (v: number) => {
+    let lo = 0;
+    let hi = served.length;
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1;
+      if (served[mid] < v) lo = mid + 1;
+      else hi = mid;
+    }
+    return served.length > 1 ? lo / (served.length - 1) : 0;
+  };
+  const features: unknown[] = [];
+  for (let i = 0; i < g.edges.length; i++) {
+    const raw = rc(s.edges[i]);
+    if (raw < 0.02) continue; // no collision/osint evidence on this edge
+    const [a, b] = g.edges[i];
+    const [alon, alat] = g.nodes[a];
+    const [blon, blat] = g.nodes[b];
+    features.push({
+      type: "Feature",
+      properties: {
+        risk: Number((0.08 + pct(raw) * 0.48).toFixed(3)),
+        collisions: Number((0.24 * s.edges[i].collisions).toFixed(3)),
+        osint: Number((0.1 * s.edges[i].osint).toFixed(3)),
+      },
+      geometry: {
+        type: "LineString",
+        coordinates: [
+          [Number(alon.toFixed(5)), Number(alat.toFixed(5))],
+          [Number(blon.toFixed(5)), Number(blat.toFixed(5))],
+        ],
+      },
+    });
+  }
+  const jsonStr = JSON.stringify({ type: "FeatureCollection", features });
+  console.log(`router weight layer: ${features.length} edges with collision/osint evidence`);
+  return { json: jsonStr, gz: Bun.gzipSync(Buffer.from(jsonStr)) };
+}
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -351,6 +424,29 @@ async function handle(req: Request): Promise<Response> {
   if (path === "/api/blocks") {
     const gz = (req.headers.get("accept-encoding") ?? "").includes("gzip");
     return new Response(gz ? blocksGz : blocksJson, {
+      headers: {
+        "content-type": "application/json",
+        "cache-control": "public, max-age=3600",
+        vary: "accept-encoding",
+        ...(gz ? { "content-encoding": "gzip" } : {}),
+      },
+    });
+  }
+
+  // -- consolidated-router static weights as a second heatmap -----------------
+  // Reads modules/pathfinding's built artifacts straight off disk (a data
+  // read, not a code dependency): harness's walk graph for the geometry and
+  // edge_static.json for the two layers the in-process heatmap cannot have:
+  // real SDOT collision density and Dhruv's scraped osint signals. Camera
+  // coverage is deliberately excluded: it is ~1.0 on most of the city, so it
+  // would wash the map instead of showing where the evidence is. Missing or
+  // edge-count-misaligned artifacts answer 503 (mirroring the router's own
+  // alignment guard) and the client simply keeps the OSM layer.
+  if (path === "/api/blocks/router") {
+    if (!routerBlocks) routerBlocks = buildRouterBlocks();
+    if ("why" in routerBlocks) return json({ ok: false, why: routerBlocks.why }, 503);
+    const gz = (req.headers.get("accept-encoding") ?? "").includes("gzip");
+    return new Response(gz ? routerBlocks.gz : routerBlocks.json, {
       headers: {
         "content-type": "application/json",
         "cache-control": "public, max-age=3600",

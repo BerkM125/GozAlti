@@ -18,6 +18,7 @@ import {
   fetchFrameRecord,
   fetchLivePath,
   fetchPath,
+  fetchRouterBlocks,
   fetchRoute,
   fetchRouteCameras,
   fetchSegment,
@@ -48,7 +49,7 @@ import {
 } from "./types.ts";
 
 type View = "2D" | "3D";
-type MapLayer = "weights" | "plain";
+type MapLayer = "weights" | "router" | "plain";
 type Panel = "cameras" | "nearby" | null;
 
 const minutes = (m: number) => Math.max(1, Math.round(m / WALK_M_PER_MIN));
@@ -82,8 +83,26 @@ function nearestIndex(polyline: [number, number][], p: LngLat): number {
 
 export default function App() {
   const [view, setView] = useState<View>("2D");
-  // The weight layer is the default view; "plain" is the toggle-off state.
+  // The weight layer is the default view; the layers button cycles OSM
+  // weights -> router evidence (when its artifacts exist) -> plain.
   const [layer, setLayer] = useState<MapLayer>("weights");
+
+  // The consolidated router's static collision + osint evidence, fetched once.
+  // Unavailable (artifacts not built) just leaves the cycle at two states -
+  // the OSM weights layer is the always-working base.
+  const [routerBlocks, setRouterBlocks] = useState<FeatureCollection | null>(null);
+  useEffect(() => {
+    fetchRouterBlocks().then((fc) => {
+      if (!isUnavailable(fc)) setRouterBlocks(fc);
+    });
+  }, []);
+  const cycleLayer = useCallback(() => {
+    setLayer((l) => {
+      if (l === "weights") return routerBlocks ? "router" : "plain";
+      if (l === "router") return "plain";
+      return "weights";
+    });
+  }, [routerBlocks]);
 
   // Origin and destination are one piece of state, not two. Two separate
   // setters read a stale closure when taps land in the same tick and can end up
@@ -633,6 +652,7 @@ export default function App() {
       <MapView
         view={view}
         layer={layer}
+        routerBlocks={routerBlocks}
         pickingStop={pickOnMap !== null}
         result={result}
         path={pathPair}
@@ -665,10 +685,14 @@ export default function App() {
 
       <nav className="controls" aria-label="Map controls">
         <button
-          className={`ctrl glass ${layer === "weights" ? "is-on" : ""}`}
-          onClick={() => setLayer(layer === "weights" ? "plain" : "weights")}
-          aria-pressed={layer === "weights"}
-          title="Routing weight overlay"
+          className={`ctrl glass ${layer !== "plain" ? "is-on" : ""}`}
+          onClick={cycleLayer}
+          aria-pressed={layer !== "plain"}
+          title={
+            layer === "router"
+              ? "Collision + report evidence (consolidated router)"
+              : "Routing weight overlay"
+          }
           aria-label="Routing weight overlay"
         >
           <LayersIcon />
@@ -694,11 +718,13 @@ export default function App() {
         </button>
       </nav>
 
-      {/* What the road colours mean. Named for what it is - a routing weight,
-          never a "safety" or "danger" score. */}
-      {layer === "weights" && (
+      {/* What the road colours mean. Named for what it is - a routing weight
+          or recorded evidence, never a "safety" or "danger" score. */}
+      {layer !== "plain" && (
         <div className="legend glass" aria-hidden="true">
-          <span className="legend-title">routing weight</span>
+          <span className="legend-title">
+            {layer === "router" ? "collisions + reports" : "routing weight"}
+          </span>
           <span className="legend-bar" />
           <span className="legend-ends">
             <i>lower</i>

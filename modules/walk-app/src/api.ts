@@ -199,6 +199,13 @@ export async function fetchRouteCameras(
 /** Every walkable block with its routing weight; static per server boot. */
 export const fetchBlocks = () => get<FeatureCollection>("/api/blocks", 15_000);
 
+/**
+ * The consolidated router's static collision + osint weights as a second
+ * heatmap. 503 (-> Unavailable) whenever the pathfinding artifacts are not
+ * built on this box; the OSM weights layer is the always-working base.
+ */
+export const fetchRouterBlocks = () => get<FeatureCollection>("/api/blocks/router", 30_000);
+
 /** One block's §6.4 assessment, for the tap-anywhere evidence sheet. */
 export const fetchSegment = (id: string) =>
   get<SegmentAssessment>(`/api/segment/${encodeURIComponent(id)}`, 6000);

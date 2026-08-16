@@ -23,8 +23,11 @@ const toLngLat = (line: [number, number][]): LngLat[] => line.map(([lat, lon]) =
 
 type Props = {
   view: "2D" | "3D";
-  /** "weights" paints every block by its routing weight; "plain" hides it. */
-  layer: "weights" | "plain";
+  /** "weights" paints every block by its routing weight, "router" paints the
+   *  consolidated router's collision/osint evidence, "plain" hides both. */
+  layer: "weights" | "router" | "plain";
+  /** Router evidence layer data; null while loading or unavailable. */
+  routerBlocks: FeatureCollection | null;
   /** True while the search bar's "Choose on the map" waits for a tap. Block
    *  taps yield to it, so the tap places the stop instead of opening a sheet. */
   pickingStop: boolean;
@@ -63,6 +66,7 @@ function el(className: string, html = ""): HTMLElement {
 export default function MapView({
   view,
   layer,
+  routerBlocks,
   pickingStop,
   result,
   path,
@@ -130,9 +134,32 @@ export default function MapView({
     m.on("load", () => {
       m.setSky(SKY);
 
-      for (const id of ["blocks", "direct", "safer", "segments"]) {
+      for (const id of ["blocks", "blocks-router", "direct", "safer", "segments"]) {
         m.addSource(id, { type: "geojson", data: EMPTY });
       }
+
+      // The consolidated router's collision + osint evidence, same ramp and
+      // z-position as the OSM weight layer; only one of the two is ever
+      // visible. Not tappable: these edges have no walk-app segment sheet.
+      m.addLayer(
+        {
+          id: "blocks-router-heat",
+          type: "line",
+          source: "blocks-router",
+          layout: { "line-cap": "round", "line-join": "round", visibility: "none" },
+          paint: {
+            "line-color": [
+              "interpolate",
+              ["linear"],
+              ["get", "risk"],
+              ...WEIGHT_STOPS.flat(),
+            ],
+            "line-width": ["interpolate", ["linear"], ["zoom"], 12, 1.5, 14, 2.75, 16, 5, 18, 9],
+            "line-opacity": 0.85,
+          },
+        },
+        "road-label",
+      );
 
       // Every walkable block, coloured by routing weight. Under the road
       // labels (beforeId), so street names stay readable over the ramp.
@@ -376,8 +403,24 @@ export default function MapView({
       // Plain mode also restores tap-to-route everywhere: no hit layer, no
       // accidental evidence sheets.
       m.setLayoutProperty("blocks-hit", "visibility", vis);
+      m.setLayoutProperty(
+        "blocks-router-heat",
+        "visibility",
+        layer === "router" ? "visible" : "none",
+      );
     });
   }, [layer]);
+
+  // -- router evidence layer data ------------------------------------------
+  useEffect(() => {
+    whenReady((m) => {
+      if (routerBlocks) {
+        (m.getSource("blocks-router") as maplibregl.GeoJSONSource | undefined)?.setData(
+          routerBlocks,
+        );
+      }
+    });
+  }, [routerBlocks]);
 
   // -- routes --------------------------------------------------------------
   // A live version bump replaces the PathObject every few seconds; only a NEW
