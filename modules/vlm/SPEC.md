@@ -52,6 +52,59 @@ people; sustained throughput survives the live demo sweep.
   after every prompt change.
 - Never hallucinate: prefer `no_people`/low confidence over invented detections.
 
+## The service — `:8040` (this is the integration surface)
+
+```bash
+# on the box, from modules/vlm/
+./run.sh install     # one-time: verify container+GPU, fetch detector weights, warm ollama
+./run.sh start       # service on :8040
+./run.sh test        # 20 unit tests, then 5 live tests against the running service
+./run.sh restart     # after a git pull
+./run.sh status|logs|stop
+```
+
+| endpoint | in | out |
+|---|---|---|
+| `POST /read` | `FrameRecord` §6.1 | `Observation` §6.2 |
+| `POST /read_batch` | `{"frames":[FrameRecord,…]}` | `{"observations":[…]}` |
+| `GET /health` | — | liveness, loaded models, counters |
+| `GET /flags` | — | the closed flag enum below |
+
+Measured on the GB10: **3.3 s per frame** end to end — detector 66 ms, VLM ~3.2 s.
+
+Two guarantees the endpoint makes that the lab scripts did not:
+
+- **Validated before it leaves.** Every response is checked against §6.2 — required
+  fields, `people_count` an int, `cx`/`cy` inside [0,1], flags in the closed enum. On a
+  schema miss the VLM is retried once, then the observation degrades to detector-only
+  with `_degraded: true`. Malformed JSON never goes downstream (SPEC §7.4).
+- **A stale frame never reaches a model.** If media-ingest sets `stale: true`, the
+  response is `camera_dead` with no detections and no invented caption.
+
+`_ext` carries additive extensions beyond §6.2 — vehicle counts by type, `detector_ms`,
+`scene`, `walkway_status`, `vlm_confidence`. Consumers may ignore it.
+
+Deployment note: the service runs inside the vLLM container (it needs torch/torchvision/
+cv2) with `--network host` to reach ollama, and the repo is mounted **at its real host
+path** so absolute `FrameRecord.path` values resolve identically inside and out. Set
+`DATA_MOUNT` if the frame store lives outside the repo.
+
+### Flag enum (§6.2 says it is defined here)
+
+`no_people` · `crowd` · `blocked_sidewalk` · `narrowed_sidewalk` · `no_sidewalk` ·
+`construction` · `road_closure` · `emergency_response` · `queue` · `loading` ·
+`stalled_vehicle` · `transit_stop` · `vehicle_on_sidewalk` · `camera_dead` ·
+`poor_lighting`
+
+No flag asserts danger, safety, or anything about who a person is — there is a unit test
+that enforces this (`test_no_verdict_flags`). Extending the enum is fine; it is ours.
+Document additions here, because synthesis maps flags to evidence text.
+
+**Accuracy caveat that must travel with `blocked_sidewalk` / `narrowed_sidewalk`:** these
+are **unvalidated**. 78 hand-labelled frames contain zero confirmed obstructions, so miss
+rate has never been measured. Both models produced zero false alarms across 23 frames.
+See `../RESULTS.md` §4b.
+
 ## Quickstart
 
 Edit on the Mac, `git push`, then on the box `cd ~/GozAlti && git pull`. Never edit
