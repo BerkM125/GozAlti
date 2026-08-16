@@ -1,0 +1,4 @@
+# results and caches from the box workbench (rebuildable)
+lab/out/
+lab/prepped/
+lab/log.jsonl

@@ -51,3 +51,23 @@ people; sustained throughput survives the live demo sweep.
 - Keep a `samples/` dir of hard frames + expected outputs as a mini eval; run it
   after every prompt change.
 - Never hallucinate: prefer `no_people`/low confidence over invented detections.
+
+## Quickstart — `lab/` (prompt + model workbench)
+
+Code is edited here; it runs on the Spark box next to its ollama server. Copy
+`lab/` to any scratch dir on the box (`rsync -az lab/ box:~/junk/vlm/`) — stdlib
+only, no venv needed (Pillow for `--draw`).
+
+```bash
+./ask.py samples/crowd__CMR-0039*.jpg -f prompts/caption.txt --json                              # production schema
+./ask.py samples/crowd__CMR-0039*.jpg -f prompts/people.txt --json --draw --edge 1456 -n 1500    # boxes + dots -> out/
+./ask.py samples/*.jpg -m qwen3-vl:8b -f prompts/caption.txt --json                              # other model
+./ask.py -h                                                                                       # all flags
+```
+
+- `samples/` — 23 real SDOT frames (crowd / few / blocked / construction / night / wet / empty)
+  with the Mac's Qwen2.5-VL reads in `mac_reads.json` as reference.
+- `prompts/caption.txt` — production schema harvested from `experiments/safe-walk/safewalk/vision.py`;
+  `prompts/people.txt` — one box per person (`bbox_2d`), the source of `cx`/`cy` dots.
+- Every call is appended to `log.jsonl`; overlays go to `out/` (both gitignored).
+- Findings (latency, the 1456-px grounding rule, output shape) in `lab/NOTES.md`.
