@@ -25,6 +25,7 @@ Two things this enforces that the scripts did not:
     camera_dead with no detections and no invented caption.
 """
 import json, os, re, sys, time, threading, base64, urllib.request
+from collections import OrderedDict
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -51,6 +52,19 @@ REPO = Path(os.environ.get("GOZALTI_ROOT", "/repo"))
 CONCURRENCY = int(os.environ.get("VLM_CONCURRENCY", "2"))
 MAX_BATCH = int(os.environ.get("VLM_MAX_BATCH", "64"))
 
+# Result cache. SPEC puts "storing history beyond a small result cache" out of scope,
+# so the small result cache is in. It is what makes multiple users affordable: a route
+# sweep touches ~40 cameras, and two people walking overlapping routes would otherwise
+# each pay 2.3 s of GPU for the identical frame.
+#
+# The key is the FRAME, not the camera: (camera_id, path, mtime). SDOT refreshes on a
+# ~15 min sweep, so a camera's answer is valid exactly as long as its frame is unchanged.
+# Keying on the frame rather than a wall-clock TTL means we can never serve a stale
+# reading of a frame that has already been replaced, and never re-read one that has not.
+# TTL is a backstop for the case where a camera stops updating.
+CACHE_TTL = int(os.environ.get("VLM_CACHE_TTL", "900"))     # seconds; 0 disables
+CACHE_MAX = int(os.environ.get("VLM_CACHE_MAX", "2000"))    # entries, LRU
+
 # The closed flag enum this module emits (SPEC §6.2 says it is defined here).
 FLAGS = [
     "no_people",            # detector found nobody
@@ -74,7 +88,10 @@ FLAGSET = set(FLAGS)
 _det = None
 _lock = threading.Lock()
 _stats = {"reads": 0, "schema_retries": 0, "schema_failures": 0, "dead": 0,
-          "batches": 0, "batch_frames": 0, "started": time.time()}
+          "batches": 0, "batch_frames": 0, "cache_hits": 0, "cache_misses": 0,
+          "gpu_seconds_saved": 0.0, "started": time.time()}
+_cache = OrderedDict()          # key -> (stored_at, observation)
+_cache_lock = threading.Lock()
 _pool = ThreadPoolExecutor(max_workers=max(1, CONCURRENCY), thread_name_prefix="vlm")
 
 
@@ -86,6 +103,42 @@ def resolve(path):
     """FrameRecord paths are repo-relative or absolute."""
     p = Path(path)
     return p if p.is_absolute() else (REPO / p)
+
+
+# ---------- cache ------------------------------------------------------------------
+
+def cache_key(rec, path):
+    """Identity of the *frame*, not the camera. A new frame is a new key."""
+    try:
+        mtime = int(path.stat().st_mtime)
+    except OSError:
+        mtime = 0
+    return (rec.get("camera_id"), str(path), mtime, rec.get("captured_at"))
+
+
+def cache_get(key):
+    if not CACHE_TTL:
+        return None
+    with _cache_lock:
+        hit = _cache.get(key)
+        if not hit:
+            return None
+        stored_at, obs = hit
+        if time.time() - stored_at > CACHE_TTL:
+            _cache.pop(key, None)
+            return None
+        _cache.move_to_end(key)                 # LRU
+        return obs
+
+
+def cache_put(key, obs):
+    if not CACHE_TTL:
+        return
+    with _cache_lock:
+        _cache[key] = (time.time(), obs)
+        _cache.move_to_end(key)
+        while len(_cache) > CACHE_MAX:
+            _cache.popitem(last=False)
 
 
 # ---------- detector ---------------------------------------------------------------
@@ -209,6 +262,19 @@ def observe(rec):
     if not path.exists():
         raise FileNotFoundError(f"frame not found: {path}")
 
+    key = cache_key(rec, path)
+    cached = cache_get(key)
+    if cached is not None:
+        _stats["cache_hits"] += 1
+        _stats["gpu_seconds_saved"] = round(
+            _stats["gpu_seconds_saved"] + (cached.get("_ext", {}).get("total_s") or 2.3), 2)
+        out = dict(cached)
+        out["read_at"] = now_iso()               # when WE answered
+        out["_ext"] = dict(cached.get("_ext", {}), cached=True)
+        return out
+    _stats["cache_misses"] += 1
+    t_start = time.time()
+
     with _lock:                       # one GPU, one detector at a time
         people, vehicles, det_ms = run_detector(path)
 
@@ -258,7 +324,9 @@ def observe(rec):
                     "detector_ms": det_ms, "vlm_tries": tries,
                     "scene": (ins or {}).get("scene"),
                     "walkway_status": (ins or {}).get("walkway_status"),
-                    "vlm_confidence": (ins or {}).get("confidence")}
+                    "vlm_confidence": (ins or {}).get("confidence"),
+                    "total_s": round(time.time() - t_start, 2), "cached": False}
+    cache_put(key, base)
     return base
 
 
@@ -304,12 +372,27 @@ class H(BaseHTTPRequestHandler):
                 "detector": DET_ARCH, "detector_loaded": _det is not None,
                 "vlm": VLM_MODEL, "ollama": OLLAMA,
                 "concurrency": CONCURRENCY, "max_batch": MAX_BATCH,
+                "cache_ttl_s": CACHE_TTL, "cache_entries": len(_cache),
                 "uptime_s": round(time.time() - _stats["started"]),
                 **{k: v for k, v in _stats.items() if k != "started"}})
         if p == "/flags":
             return self._json(200, {"flags": FLAGS})
+        if p == "/cache":
+            h, m = _stats["cache_hits"], _stats["cache_misses"]
+            return self._json(200, {
+                "entries": len(_cache), "max": CACHE_MAX, "ttl_s": CACHE_TTL,
+                "hits": h, "misses": m,
+                "hit_rate": round(h / (h + m), 3) if (h + m) else None,
+                "gpu_seconds_saved": _stats["gpu_seconds_saved"]})
         self._json(404, {"error": "not found", "routes": ["/health", "/flags",
                                                           "POST /read", "POST /read_batch"]})
+
+    def do_DELETE(self):
+        if urlparse(self.path).path == "/cache":
+            with _cache_lock:
+                n = len(_cache); _cache.clear()
+            return self._json(200, {"cleared": n})
+        self._json(404, {"error": "not found"})
 
     def do_POST(self):
         p = urlparse(self.path).path
@@ -358,7 +441,8 @@ class H(BaseHTTPRequestHandler):
 
 def main():
     print(f"vlm service :{PORT}  detector={DET_ARCH}  vlm={VLM_MODEL}  repo={REPO}  "
-          f"concurrency={CONCURRENCY}  max_batch={MAX_BATCH}", flush=True)
+          f"concurrency={CONCURRENCY}  max_batch={MAX_BATCH}  "
+          f"cache_ttl={CACHE_TTL}s", flush=True)
     if os.environ.get("VLM_PRELOAD", "1") == "1":
         threading.Thread(target=lambda: (detector(), print("[vlm] detector warm", flush=True)),
                          daemon=True).start()

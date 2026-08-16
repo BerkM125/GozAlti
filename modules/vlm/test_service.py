@@ -214,17 +214,39 @@ class TestLive(unittest.TestCase):
         frames = sorted((HERE / "lab" / "samples").glob("*.jpg"))[:4]
         if len(frames) < 4:
             self.skipTest("need 4 sample frames")
-        recs = [{"camera_id": f"C{i}", "captured_at": "2026-08-16T05:00:00Z", "kind": "frame",
-                 "path": str(f), "source": "sdot-snapshot", "stale": False}
-                for i, f in enumerate(frames)]
-        t0 = time.time(); self.post("/read", recs[0], timeout=300)
-        serial_per_frame = time.time() - t0
-        out = self.post("/read_batch", {"frames": recs}, timeout=600)
+        # Compare the SAME frames both ways. An earlier version timed one cheap frame
+        # serially against four mixed frames batched and "failed" on frame difficulty
+        # rather than on concurrency.
+        def recs(tag):
+            return [{"camera_id": f"{tag}{i}", "captured_at": "2026-08-16T05:00:00Z",
+                     "kind": "frame", "path": str(f), "source": "sdot-snapshot",
+                     "stale": False} for i, f in enumerate(frames)]
+        t0 = time.time()
+        for r in recs("S"):
+            self.post("/read", r, timeout=300)
+        serial_per_frame = (time.time() - t0) / len(frames)
+        out = self.post("/read_batch", {"frames": recs("B")}, timeout=600)
         self.assertEqual(out["concurrency"], service.CONCURRENCY)
+        speedup = serial_per_frame / out["per_frame_s"]
         print(f"\n    serial {serial_per_frame:.2f}s/frame vs batch "
-              f"{out['per_frame_s']:.2f}s/frame at concurrency {out['concurrency']}")
+              f"{out['per_frame_s']:.2f}s/frame at concurrency {out['concurrency']} "
+              f"({speedup:.2f}x)")
         self.assertLess(out["per_frame_s"], serial_per_frame,
                         "batch should be faster per frame than one-at-a-time")
+
+    def test_cache_hit_is_fast_and_identical(self):
+        """Two users routing past the same camera must not both pay for the GPU."""
+        f = sorted((HERE / "lab" / "samples").glob("*.jpg"))[0]
+        rec = {"camera_id": "CACHE-TEST", "captured_at": "2026-08-16T09:00:00Z",
+               "kind": "frame", "path": str(f), "source": "sdot-snapshot", "stale": False}
+        first = self.post("/read", rec, timeout=300)
+        t0 = time.time(); second = self.post("/read", rec, timeout=60)
+        hit_s = time.time() - t0
+        self.assertEqual(first["detections"], second["detections"], "cached read differs")
+        self.assertEqual(first["caption"], second["caption"])
+        self.assertTrue(second.get("_ext", {}).get("cached"), "second read should be cached")
+        self.assertLess(hit_s, 0.5, f"cache hit took {hit_s:.2f}s; should be instant")
+        print(f"\n    cache hit in {hit_s*1000:.0f} ms")
 
     def test_batch(self):
         frames = sorted((HERE / "lab" / "samples").glob("*.jpg"))[:2]
