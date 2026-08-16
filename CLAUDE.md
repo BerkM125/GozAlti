@@ -4,6 +4,11 @@ You are working inside **GozAlti**, a 5-person NVIDIA Spark Hack (See track)
 monorepo with a hard deadline of **Sunday Aug 16, 4:00 PM PDT**. These rules are
 binding for every Claude session in this repo.
 
+**FINAL-NIGHT CLOCK: `SPEC.md` §5.2 sets hour-by-hour deadlines (1:00 AM →
+4:00 AM submission, Sunday Aug 16 PDT), binding on every dev and every agent
+session. Check the current time against that table before starting work; slots
+whose deadline has passed are frozen — bug fixes only, no new scope.**
+
 ## Before touching anything
 
 1. Read `SPEC.md` (the god spec) in full — mission, demo definition of done,
